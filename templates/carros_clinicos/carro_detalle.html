@@ -1,0 +1,265 @@
+{% extends 'base.html' %}
+{% block title %}{{ carro.nombre }} - Detalle{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <h4 class="mb-0 fw-bold">{{ carro.nombre }}</h4>
+                <span class="badge {% if carro.tipo == 'paro' %}bg-danger{% else %}bg-primary{% endif %}">
+                    {{ carro.get_tipo_display }}
+                </span>
+                <span class="badge {% if carro.estado == 'completo' %}bg-success{% elif carro.estado == 'incompleto' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                    {{ carro.get_estado_display }}
+                </span>
+            </div>
+            <p class="text-muted small mb-0 mt-1">
+                <i class="bi bi-geo-alt-fill text-danger me-1"></i>{{ carro.ubicacion_fisica }} | 
+                Precinto: <strong>{{ carro.numero_precinto|default:"Sin precinto" }}</strong> 
+                {% if carro.fecha_ultimo_precinto %}({{ carro.fecha_ultimo_precinto|date:"d/m/Y H:i" }}){% endif %}
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <!-- Botón Consumo (Personal Clínico / Enfermería) -->
+            <button type="button" class="btn btn-warning text-dark" data-bs-toggle="modal" data-bs-target="#modalConsumo">
+                <i class="bi bi-lightning-charge-fill me-1"></i>Registrar Consumo Emergencia
+            </button>
+            <!-- Botón Reposición (Farmacia / FEFO) -->
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalReposicion">
+                <i class="bi bi-arrow-repeat me-1"></i>Reponer desde Farmacia (FEFO)
+            </button>
+            <a href="{% url 'carros_clinicos:carro_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- Tabla Plantilla Canónica del Carro -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h6 class="mb-0 fw-bold"><i class="bi bi-clipboard2-pulse text-danger me-2"></i>Plantilla Canónica de Medicamentos e Insumos</h6>
+            <span class="small text-muted">Dotación estandarizada según protocolo ministerial</span>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-cesfam table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Ubicación en Carro</th>
+                            <th>Medicamento / Insumo</th>
+                            <th>Presentación</th>
+                            <th>Requerido</th>
+                            <th>Actual</th>
+                            <th>Faltante</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for it in items %}
+                        <tr class="{% if not it.esta_completo %}table-danger{% endif %}">
+                            <td><code>{{ it.ubicacion_en_carro|default:"General" }}</code></td>
+                            <td>
+                                <strong>{{ it.medicamento.nombre_generico }}</strong> {{ it.medicamento.concentracion }}
+                                {% if it.medicamento.es_controlado %}
+                                <span class="badge bg-danger ms-1">CONTROLADO</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ it.medicamento.forma_farmaceutica }}</td>
+                            <td><span class="badge bg-dark">{{ it.cantidad_requerida }}</span></td>
+                            <td class="fw-bold {% if it.esta_completo %}text-success{% else %}text-danger{% endif %}">
+                                {{ it.cantidad_actual }}
+                            </td>
+                            <td>
+                                {% if it.faltante > 0 %}
+                                <span class="badge bg-danger">-{{ it.faltante }}</span>
+                                {% else %}
+                                <span class="text-muted">0</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if it.esta_completo %}
+                                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completo</span>
+                                {% else %}
+                                <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>Incompleto</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-4 text-muted">
+                                No hay ítems configurados en la plantilla canónica de este carro.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pestañas de Historial -->
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h6 class="mb-0 fw-bold"><i class="bi bi-clock-history text-warning me-2"></i>Consumos Recientes en Emergencia</h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Medicamento</th>
+                                    <th>Cant.</th>
+                                    <th>Personal Clínico</th>
+                                    <th>Motivo / Paciente</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for c in consumos_recientes %}
+                                <tr>
+                                    <td><small>{{ c.fecha|date:"d/m H:i" }}</small></td>
+                                    <td><strong>{{ c.item.medicamento.nombre_generico }}</strong></td>
+                                    <td><span class="badge bg-danger">-{{ c.cantidad_consumida }}</span></td>
+                                    <td><small>{{ c.personal_clinico.get_full_name }}</small></td>
+                                    <td><small class="text-muted">{{ c.motivo|truncatechars:30 }}</small></td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="5" class="text-center text-muted small py-3">Sin consumos recientes.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h6 class="mb-0 fw-bold"><i class="bi bi-shield-check text-success me-2"></i>Reposiciones Recientes desde Farmacia</h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Medicamento</th>
+                                    <th>Cant.</th>
+                                    <th>Lote FEFO</th>
+                                    <th>Nuevo Precinto</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in reposiciones_recientes %}
+                                <tr>
+                                    <td><small>{{ r.fecha|date:"d/m H:i" }}</small></td>
+                                    <td><strong>{{ r.item.medicamento.nombre_generico }}</strong></td>
+                                    <td><span class="badge bg-success">+{{ r.cantidad_repuesta }}</span></td>
+                                    <td><small>{{ r.lote.numero_lote }}</small></td>
+                                    <td><small class="badge bg-dark">{{ r.nuevo_precinto|default:"—" }}</small></td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="5" class="text-center text-muted small py-3">Sin reposiciones recientes.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Registrar Consumo (Personal Clínico) -->
+<div class="modal fade" id="modalConsumo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-lightning-charge-fill me-2"></i>Registrar Consumo en Emergencia</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'carros_clinicos:registrar_consumo' carro.pk %}">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Ítem Consumido del Carro</label>
+                        <select name="item" class="form-select" required>
+                            {% for it in items %}
+                            <option value="{{ it.pk }}">{{ it.medicamento.nombre_generico }} (Actual: {{ it.cantidad_actual }}) - {{ it.ubicacion_en_carro }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cantidad Consumida</label>
+                        <input type="number" name="cantidad" class="form-control" min="1" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Motivo Clínico de Emergencia</label>
+                        <textarea name="motivo" class="form-control" rows="2" placeholder="Ej: Paro cardiorrespiratorio en Box 1, shock anafiláctico..." required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Paciente Atendido (Opcional)</label>
+                        <input type="text" name="paciente_atendido" class="form-control" placeholder="RUT o Nombre del paciente atendido">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-warning"><i class="bi bi-check-circle me-1"></i>Registrar Consumo</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Reposición (Farmacia - FEFO) -->
+<div class="modal fade" id="modalReposicion" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Reposición de Carro Clínico (Lógica FEFO)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'carros_clinicos:reponer_carro' carro.pk %}">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Ítem a Reponer</label>
+                            <select name="item" class="form-select" required>
+                                {% for it in items %}
+                                <option value="{{ it.pk }}">{{ it.medicamento.nombre_generico }} (Faltan: {{ it.faltante }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Lote en Farmacia (Ordenado FEFO)</label>
+                            <select name="lote" class="form-select" required>
+                                {% for it in items %}
+                                    {% for l in it.medicamento.lotes_fefo %}
+                                    <option value="{{ l.pk }}">{{ it.medicamento.nombre_generico }} | Lote {{ l.numero_lote }} (Stock: {{ l.cantidad_actual }}, Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }})</option>
+                                    {% endfor %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Cantidad a Reponer</label>
+                            <input type="number" name="cantidad" class="form-control" min="1" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Número de Nuevo Precinto de Seguridad</label>
+                            <input type="text" name="nuevo_precinto" class="form-control" placeholder="Ej: PREC-2026-9042" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success"><i class="bi bi-shield-lock-fill me-1"></i>Confirmar Reposición y Precintar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

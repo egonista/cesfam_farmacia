@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% block title %}Verificación GES - {{ paciente.nombre_completo }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1"><i class="bi bi-shield-check text-primary me-2"></i>Verificación de Cobertura GES/AUGE</h4>
+            <p class="text-muted small mb-0">Comprobación automática previa al despacho de canastas farmacológicas</p>
+        </div>
+        <a href="{% url 'core:paciente_detalle' paciente.pk %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-person me-1"></i>Ficha del Paciente
+        </a>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-3">
+                    <span class="text-muted small d-block">Paciente:</span>
+                    <strong>{{ paciente.nombre_completo }}</strong>
+                </div>
+                <div class="col-md-3">
+                    <span class="text-muted small d-block">RUT:</span>
+                    <code>{{ paciente.rut }}</code>
+                </div>
+                <div class="col-md-3">
+                    <span class="text-muted small d-block">Previsión:</span>
+                    <span class="badge bg-primary">{{ paciente.get_prevision_display }}</span>
+                </div>
+                <div class="col-md-3">
+                    <span class="text-muted small d-block">Copago GES:</span>
+                    <span class="badge bg-success fs-6">$0 Copago (APS)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3">
+            <h6 class="mb-0 fw-bold"><i class="bi bi-list-check text-primary me-2"></i>Canastas Asociadas y Factibilidad de Despacho</h6>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-cesfam table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Patología GES</th>
+                            <th>Medicamento de la Canasta</th>
+                            <th>Cuotas Autorizadas</th>
+                            <th>Cuotas Entregadas</th>
+                            <th>Saldo de Cuotas</th>
+                            <th>Estado Despacho</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in resultados %}
+                        <tr>
+                            <td><strong>{{ r.patologia }}</strong></td>
+                            <td>{{ r.medicamento }}</td>
+                            <td>{{ r.cuotas_autorizadas }}</td>
+                            <td>{{ r.cuotas_usadas }}</td>
+                            <td><strong class="{% if r.cuotas_restantes > 0 %}text-success{% else %}text-danger{% endif %}">{{ r.cuotas_restantes }}</strong></td>
+                            <td>
+                                {% if r.puede_despachar %}
+                                <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Autorizado</span>
+                                {% else %}
+                                <span class="badge bg-danger"><i class="bi bi-slash-circle me-1"></i>Bloqueado (Sin saldo)</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted">
+                                El paciente no registra patologías GES activas adscritas en el establecimiento.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Historial de Dispensaciones{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h4><i class="bi bi-clock-history me-2"></i>Historial de Dispensaciones</h4>
+    <div class="card"><div class="card-body"><div class="table-responsive"><table class="table table-cesfam"><thead><tr><th>#</th><th>Receta</th><th>Paciente</th><th>Dispensador</th><th>Tercero</th><th>Copago</th><th>Fecha</th><th></th></tr></thead><tbody>{% for d in dispensaciones %}<tr><td>{{ d.id }}</td><td>{{ d.receta.numero_receta }}</td><td>{{ d.receta.paciente.nombre_completo }}</td><td>{{ d.usuario_dispensador.get_full_name }}</td><td>{% if d.retiro_tercero %}<span class="badge bg-info">Sí</span>{% else %}—{% endif %}</td><td>$0</td><td>{{ d.fecha|date:"d/m/Y H:i" }}</td><td><a href="{% url 'dispensacion:dispensacion_detalle' d.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td></tr>{% empty %}<tr><td colspan="8" class="text-center text-muted">Sin dispensaciones.</td></tr>{% endfor %}</tbody></table></div></div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Dispensar Receta {{ receta.numero_receta }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h4><i class="bi bi-hand-index me-2"></i>Dispensar Receta {{ receta.numero_receta }}</h4>
+    <div class="alert alert-info py-2"><strong>Paciente:</strong> {{ receta.paciente.nombre_completo }} ({{ receta.paciente.rut }}) | <strong>Copago:</strong> $0 (Gratuito APS)</div>
+    <form method="post">{% csrf_token %}
+        {% for info in detalles_info %}
+        <div class="card mb-3">
+            <div class="card-header"><strong>{{ info.detalle.medicamento.nombre_generico }} {{ info.detalle.medicamento.concentracion }}</strong> — Pendiente: {{ info.cantidad_pendiente }} {{ info.detalle.medicamento.get_unidad_medida_display }}</div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">Lote (FEFO)</label><select name="lote_{{ info.detalle.id }}" class="form-select">{% for l in info.lotes_fefo %}<option value="{{ l.pk }}" {% if l.pk == info.lote_sugerido.pk %}selected{% endif %}>{{ l.numero_lote }} - Stock: {{ l.cantidad_actual }} - Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }}{% if forloop.first %} ✓ FEFO{% endif %}</option>{% endfor %}</select></div>
+                    <div class="col-md-2"><label class="form-label">Cantidad</label><input type="number" name="cantidad_{{ info.detalle.id }}" class="form-control" min="0" max="{{ info.cantidad_pendiente }}" value="{{ info.cantidad_pendiente }}"></div>
+                    <div class="col-md-6"><label class="form-label">Justificación Override FEFO (si aplica)</label><input type="text" name="justificacion_{{ info.detalle.id }}" class="form-control" placeholder="Obligatoria si cambia el lote sugerido"></div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-person-badge me-2"></i>Retiro por Tercero Autorizado</div>
+            <div class="card-body">
+                <div class="form-check mb-3"><input type="checkbox" name="retiro_tercero" class="form-check-input" id="id_retiro_tercero"><label class="form-check-label" for="id_retiro_tercero">El retiro lo realiza un tercero autorizado</label></div>
+                <div id="div-tercero-autorizado" style="display:none">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">RUT Tercero</label><input type="text" name="rut_tercero" class="form-control" data-validate-rut data-required-if-tercero></div>
+                        <div class="col-md-3"><label class="form-label">Nombres</label><input type="text" name="nombres_tercero" class="form-control" data-required-if-tercero></div>
+                        <div class="col-md-3"><label class="form-label">Apellido Paterno</label><input type="text" name="ap_paterno_tercero" class="form-control" data-required-if-tercero></div>
+                        <div class="col-md-3"><label class="form-label">Apellido Materno</label><input type="text" name="ap_materno_tercero" class="form-control"></div>
+                        <div class="col-md-3"><label class="form-label">Parentesco</label><input type="text" name="parentesco_tercero" class="form-control" data-required-if-tercero placeholder="Ej: Hijo/a, Esposo/a"></div>
+                        <div class="col-md-3"><label class="form-label">Teléfono</label><input type="text" name="telefono_tercero" class="form-control" data-required-if-tercero></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="mb-3"><label class="form-label">Observaciones</label><textarea name="observaciones" class="form-control" rows="2"></textarea></div>
+        <button type="submit" class="btn btn-dispensar btn-lg"><i class="bi bi-check2-circle me-2"></i>Confirmar Dispensación ($0 Copago)</button>
+        <a href="{% url 'dispensacion:receta_detalle' receta.pk %}" class="btn btn-outline-secondary ms-2">Cancelar</a>
+    </form>
+</div>
+{% endblock %}

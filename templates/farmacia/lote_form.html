@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Nuevo Lote{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h4><i class="bi bi-box-seam me-2"></i>Registrar Nuevo Lote</h4>
+    <div class="card mt-3"><div class="card-body">
+        <form method="post">{% csrf_token %}
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Medicamento</label><select name="medicamento" class="form-select" required>{% for m in medicamentos %}<option value="{{ m.pk }}">{{ m.nombre_generico }} {{ m.concentracion }}</option>{% endfor %}</select></div>
+                <div class="col-md-6"><label class="form-label">N° Lote</label><input type="text" name="numero_lote" class="form-control" required></div>
+                <div class="col-md-3"><label class="form-label">Fecha Fabricación</label><input type="date" name="fecha_fabricacion" class="form-control" required></div>
+                <div class="col-md-3"><label class="form-label">Fecha Vencimiento</label><input type="date" name="fecha_vencimiento" class="form-control" required></div>
+                <div class="col-md-3"><label class="form-label">Cantidad Inicial</label><input type="number" name="cantidad_inicial" class="form-control" min="1" required></div>
+                <div class="col-md-3"><label class="form-label">Ubicación</label><select name="ubicacion" class="form-select" required>{% for u in ubicaciones %}<option value="{{ u.pk }}">{{ u.nombre }}</option>{% endfor %}</select></div>
+                <div class="col-md-6"><label class="form-label">Proveedor</label><input type="text" name="proveedor" class="form-control"></div>
+            </div>
+            <div class="mt-4"><button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Registrar Lote</button> <a href="{% url 'farmacia:lote_list' %}" class="btn btn-outline-secondary ms-2">Cancelar</a></div>
+        </form>
+    </div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}Inscripciones GES/AUGE{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1"><i class="bi bi-shield-check text-primary me-2"></i>Inscripciones GES / AUGE</h4>
+            <p class="text-muted small mb-0">Control de patologías garantizadas y saldo de cuotas farmacológicas (Ley N° 19.966)</p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <form method="get" class="row g-2 mb-3">
+                <div class="col-md-9">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" name="q" class="form-control" placeholder="Buscar por RUT, apellido del paciente o nombre de patología GES..." value="{{ query }}">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-filter me-1"></i>Filtrar</button>
+                </div>
+            </form>
+
+            <div class="table-responsive">
+                <table class="table table-cesfam table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Código</th>
+                            <th>Patología GES</th>
+                            <th>Paciente</th>
+                            <th>RUT</th>
+                            <th>Fecha Inscripción</th>
+                            <th>Período Activo</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for insc in inscripciones %}
+                        <tr>
+                            <td><span class="badge bg-dark">{{ insc.patologia.codigo }}</span></td>
+                            <td><strong class="text-primary">{{ insc.patologia.nombre }}</strong></td>
+                            <td>{{ insc.paciente.nombre_completo }}</td>
+                            <td><code>{{ insc.paciente.rut }}</code></td>
+                            <td>{{ insc.fecha_inscripcion|date:"d/m/Y" }}</td>
+                            <td><small>{{ insc.fecha_inicio_periodo|date:"d/m/Y" }} al {{ insc.fecha_fin_periodo|date:"d/m/Y" }}</small></td>
+                            <td>
+                                {% if insc.activa %}
+                                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Activa</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Inactiva</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{% url 'ges:inscripcion_detalle' insc.pk %}" class="btn btn-sm btn-outline-primary" title="Ver detalle y cuotas">
+                                    <i class="bi bi-eye-fill me-1"></i>Cuotas
+                                </a>
+                                <a href="{% url 'ges:verificar_ges' insc.paciente.pk %}" class="btn btn-sm btn-outline-info" title="Verificar cobertura completa">
+                                    <i class="bi bi-shield-check"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="8" class="text-center py-4 text-muted">
+                                <i class="bi bi-folder-x fs-3 d-block mb-2"></i>
+                                No se encontraron inscripciones GES activas.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

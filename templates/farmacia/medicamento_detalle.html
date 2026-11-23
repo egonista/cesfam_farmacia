@@ -1,0 +1,216 @@
+{% extends 'base.html' %}
+{% block title %}{{ medicamento.nombre_generico }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <div class="d-flex align-items-center gap-2">
+            <h4 class="fw-bolder mb-0"><i class="bi bi-capsule-pill text-danger me-2"></i>{{ medicamento.nombre_generico }} {{ medicamento.concentracion }}</h4>
+            <code>{{ medicamento.codigo }}</code>
+            {% if medicamento.en_quiebre %}
+            <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>EN QUIEBRE DE STOCK</span>
+            {% else %}
+            <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>STOCK ÓPTIMO</span>
+            {% endif %}
+        </div>
+        <p class="text-muted small mb-0 mt-1">Ficha técnica, control de lotes FEFO, ajuste manual de inventario y kardex de movimientos</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalEditarMedicamento">
+            <i class="bi bi-pencil-square me-1"></i>Editar Ficha del Medicamento
+        </button>
+        <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-box-seam me-1"></i>+ Ingresar Lote Manual
+        </a>
+        <a href="{% url 'farmacia:orden_list' %}" class="btn btn-cesfam btn-sm">
+            <i class="bi bi-truck me-1"></i>Pedir a CENABAST
+        </a>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Ficha Técnica Lateral -->
+    <div class="col-md-4">
+        <div class="card p-4">
+            <h6 class="fw-bolder text-uppercase small text-danger border-bottom pb-2 mb-3">Especificaciones del Fármaco</h6>
+            <p class="mb-2"><strong>Código Interno:</strong> <code>{{ medicamento.codigo }}</code></p>
+            <p class="mb-2"><strong>Nombre Genérico (DCI):</strong> {{ medicamento.nombre_generico }}</p>
+            <p class="mb-2"><strong>Nombre Comercial:</strong> {{ medicamento.nombre_comercial|default:"—" }}</p>
+            <p class="mb-2"><strong>Concentración:</strong> {{ medicamento.concentracion }}</p>
+            <p class="mb-2"><strong>Forma Farmacéutica:</strong> {{ medicamento.forma_farmaceutica }}</p>
+            <p class="mb-2"><strong>Categoría:</strong> <span class="badge bg-secondary">{{ medicamento.categoria.nombre }}</span></p>
+            <hr>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span><strong>Stock Total Vigente:</strong></span>
+                <span class="fs-3 fw-bolder {% if medicamento.en_quiebre %}text-danger{% else %}text-success{% endif %}">{{ medicamento.stock_total }}</span>
+            </div>
+            <div class="d-flex justify-content-between small text-muted mb-1">
+                <span>Umbral Mínimo (Alerta Quiebre):</span>
+                <strong>{{ medicamento.stock_minimo }} unid.</strong>
+            </div>
+            <div class="d-flex justify-content-between small text-muted">
+                <span>Capacidad Máxima:</span>
+                <strong>{{ medicamento.stock_maximo }} unid.</strong>
+            </div>
+            {% if medicamento.es_controlado %}
+            <div class="alert alert-danger py-2 mt-3 mb-0 small">
+                <i class="bi bi-shield-lock-fill me-1"></i><strong>Medicamento Controlado (D.S. 404/405 ISP)</strong>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Lotes Ordenados FEFO y Ajuste Manual -->
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-box-seam text-danger me-2"></i>Lotes Registrados (Ordenados por Algoritmo FEFO)</span>
+                <span class="small text-muted">Puedes ajustar manualmente el stock o vencimiento de cualquier lote</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-cesfam mb-0 align-middle" id="tableLotesFEFO">
+                        <thead>
+                            <tr>
+                                <th>N° Lote</th>
+                                <th>Ubicación Física</th>
+                                <th>Stock Actual</th>
+                                <th>Vencimiento</th>
+                                <th>Días</th>
+                                <th>Semáforo</th>
+                                <th>Prioridad FEFO</th>
+                                <th style="width: 240px;">Ajuste Manual</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for l in lotes_todos %}
+                        <tr data-vencido="{{ l.esta_vencido|yesno:'true,false' }}" class="{% if l.esta_vencido %}table-danger{% elif forloop.first and not l.esta_vencido %}table-success{% endif %}">
+                            <td><code class="fw-bold">{{ l.numero_lote }}</code></td>
+                            <td class="small">{{ l.ubicacion.nombre }}</td>
+                            <td class="fw-bolder">{{ l.cantidad_actual }} <small class="text-muted fw-normal">/ {{ l.cantidad_inicial }}</small></td>
+                            <td class="small">{{ l.fecha_vencimiento|date:"d/m/Y" }}</td>
+                            <td class="small fw-bold">{{ l.dias_para_vencer }}d</td>
+                            <td><span class="badge badge-{{ l.alerta_vencimiento }}">{{ l.alerta_vencimiento|upper }}</span></td>
+                            <td>
+                                {% if not l.esta_vencido and l.cantidad_actual > 0 and l.pk == lotes_fefo.first.pk %}
+                                <span class="fefo-indicator fefo-first">✓ 1° FEFO</span>
+                                {% elif l.esta_vencido %}
+                                <span class="fefo-indicator fefo-blocked">⛔ Vencido</span>
+                                {% elif l.cantidad_actual == 0 %}
+                                <span class="badge bg-secondary">Agotado</span>
+                                {% else %}
+                                <span class="text-muted small">En cola</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form method="post" class="d-flex gap-1 m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="accion" value="ajustar_lote">
+                                    <input type="hidden" name="lote_id" value="{{ l.pk }}">
+                                    <input type="number" name="cantidad_actual" class="form-control form-control-sm" style="width: 80px;" value="{{ l.cantidad_actual }}" min="0" title="Nueva cantidad real">
+                                    <input type="text" name="motivo" class="form-control form-control-sm" placeholder="Motivo ajuste" value="Arqueo físico">
+                                    <button type="submit" class="btn btn-sm btn-dark" title="Guardar ajuste de stock">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="8" class="text-muted text-center py-4">Sin lotes registrados para este medicamento.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kardex de Movimientos -->
+        <div class="card">
+            <div class="card-header"><i class="bi bi-arrow-left-right text-danger me-2"></i>Kardex de Movimientos del Medicamento</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-cesfam mb-0">
+                        <thead><tr><th>Fecha</th><th>Tipo Movimiento</th><th>Lote</th><th>Variación</th><th>Stock Ant. ➔ Post.</th><th>Motivo</th><th>Operador</th></tr></thead>
+                        <tbody>
+                        {% for m in movimientos %}
+                        <tr>
+                            <td class="small">{{ m.fecha|date:"d/m/Y H:i" }}</td>
+                            <td><span class="badge bg-{% if 'ingreso' in m.tipo %}success{% elif 'egreso' in m.tipo %}danger{% else %}dark{% endif %}">{{ m.get_tipo_display }}</span></td>
+                            <td><code>{{ m.lote.numero_lote }}</code></td>
+                            <td class="fw-bold">{{ m.cantidad }}</td>
+                            <td class="small">{{ m.cantidad_anterior }} ➔ <strong>{{ m.cantidad_posterior }}</strong></td>
+                            <td class="small text-muted">{{ m.motivo|default:"—" }}</td>
+                            <td class="small">{{ m.usuario.get_full_name }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="7" class="text-muted text-center py-3">Sin movimientos registrados.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Ficha del Medicamento -->
+<div class="modal fade" id="modalEditarMedicamento" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Editar Ficha Técnica de {{ medicamento.nombre_generico }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="editar_medicamento">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Nombre Genérico (DCI)</label>
+                            <input type="text" name="nombre_generico" class="form-control" value="{{ medicamento.nombre_generico }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Nombre Comercial</label>
+                            <input type="text" name="nombre_comercial" class="form-control" value="{{ medicamento.nombre_comercial }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Concentración</label>
+                            <input type="text" name="concentracion" class="form-control" value="{{ medicamento.concentracion }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Forma Farmacéutica</label>
+                            <input type="text" name="forma_farmaceutica" class="form-control" value="{{ medicamento.forma_farmaceutica }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Categoría</label>
+                            <select name="categoria" class="form-select">
+                                {% for c in categorias %}
+                                <option value="{{ c.pk }}" {% if medicamento.categoria_id == c.pk %}selected{% endif %}>{{ c.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Stock Mínimo (Alerta Quiebre)</label>
+                            <input type="number" name="stock_minimo" class="form-control" value="{{ medicamento.stock_minimo }}" min="1" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Stock Máximo</label>
+                            <input type="number" name="stock_maximo" class="form-control" value="{{ medicamento.stock_maximo }}" min="1" required>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input type="checkbox" name="es_controlado" class="form-check-input" id="chkEditCtrl" {% if medicamento.es_controlado %}checked{% endif %}>
+                                <label class="form-check-label fw-bold text-danger" for="chkEditCtrl">Controlado ISP (D.S. 404/405)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-save me-1"></i>Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

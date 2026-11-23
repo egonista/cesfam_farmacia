@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+{% block title %}Libro Oficial de Controlados{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1"><i class="bi bi-journal-bookmark-fill text-danger me-2"></i>Libro Oficial Digital de Medicamentos Controlados</h4>
+            <p class="text-muted small mb-0">Registro foliado de estupefacientes y psicotrópicos fiscalizado por ISP (D.S. N° 404/83 y N° 405/83)</p>
+        </div>
+        <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevoControlado">
+            <i class="bi bi-shield-lock-fill me-1"></i>Nuevo Movimiento Foliado (2FA)
+        </button>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-cesfam table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Folio</th>
+                            <th>Fecha</th>
+                            <th>Tipo</th>
+                            <th>Medicamento Controlado</th>
+                            <th>Lote</th>
+                            <th>Cantidad</th>
+                            <th>Saldo Ant.</th>
+                            <th>Saldo Post.</th>
+                            <th>Receta / Paciente</th>
+                            <th>QF Responsable</th>
+                            <th>2FA</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for reg in registros %}
+                        <tr>
+                            <td><span class="badge bg-dark fs-6">#{{ reg.folio }}</span></td>
+                            <td>{{ reg.fecha_registro|date:"d/m/Y H:i" }}</td>
+                            <td>
+                                {% if reg.tipo_movimiento == 'ingreso' %}
+                                <span class="badge bg-success">Ingreso</span>
+                                {% elif reg.tipo_movimiento == 'egreso' %}
+                                <span class="badge bg-danger">Egreso</span>
+                                {% elif reg.tipo_movimiento == 'merma' %}
+                                <span class="badge bg-warning text-dark">Merma</span>
+                                {% else %}
+                                <span class="badge bg-info text-dark">{{ reg.get_tipo_movimiento_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td><strong>{{ reg.medicamento.nombre_generico }}</strong> {{ reg.medicamento.concentracion }}</td>
+                            <td><code>{{ reg.lote.numero_lote }}</code></td>
+                            <td class="fw-bold">{{ reg.cantidad }}</td>
+                            <td>{{ reg.saldo_anterior }}</td>
+                            <td class="fw-bold text-primary">{{ reg.saldo_posterior }}</td>
+                            <td>
+                                {% if reg.receta %}
+                                <small>Receta #{{ reg.receta.numero_receta }}</small><br>
+                                {% endif %}
+                                {% if reg.paciente %}
+                                <small class="text-muted">{{ reg.paciente.nombre_completo }}</small>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td><small>{{ reg.quimico_responsable.get_full_name }}</small></td>
+                            <td>
+                                {% if reg.verificacion_2fa %}
+                                <span class="badge bg-success" title="Firmado con 2FA"><i class="bi bi-shield-check"></i> Verificado</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Sin 2FA</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="11" class="text-center py-4 text-muted">
+                                <i class="bi bi-journal-x fs-3 d-block mb-2"></i>
+                                No hay movimientos registrados en el Libro de Controlados.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nuevo Movimiento de Controlados con 2FA -->
+<div class="modal fade" id="modalNuevoControlado" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="modalLabel"><i class="bi bi-shield-lock-fill me-2"></i>Registrar Movimiento de Fármaco Controlado</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'controlados:registro' %}">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="alert alert-warning py-2 small">
+                        <i class="bi bi-info-circle-fill me-1"></i>
+                        Esta operación es foliada e inmutable bajo apercibimiento del Código Sanitario y decretos 404/405. Requiere validación con segundo factor (PIN de seguridad o TOTP).
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Medicamento Controlado</label>
+                            <select name="medicamento" id="selectMedicamento" class="form-select" required>
+                                <option value="">Seleccione medicamento...</option>
+                                {% for m in medicamentos_controlados %}
+                                <option value="{{ m.pk }}">{{ m.nombre_generico }} {{ m.concentracion }} (Stock: {{ m.stock_total }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Lote</label>
+                            <select name="lote" id="selectLote" class="form-select" required>
+                                <option value="">Seleccione lote...</option>
+                                {% for m in medicamentos_controlados %}
+                                    {% for l in m.lotes.all %}
+                                    <option value="{{ l.pk }}" data-med="{{ m.pk }}">{{ l.numero_lote }} - Stock: {{ l.cantidad_actual }} - Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }}</option>
+                                    {% endfor %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Tipo de Movimiento</label>
+                            <select name="tipo_movimiento" class="form-select" required>
+                                <option value="ingreso">Ingreso (Recepción CENABAST / Remesa)</option>
+                                <option value="egreso">Egreso (Dispensación)</option>
+                                <option value="merma">Merma / Destrucción protocolizada</option>
+                                <option value="devolucion">Devolución</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Cantidad</label>
+                            <input type="number" name="cantidad" class="form-control" min="1" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Observaciones / Motivo Sanitario</label>
+                            <textarea name="observaciones" class="form-control" rows="2" placeholder="Detalle justificativo, número de resolución o remesa..."></textarea>
+                        </div>
+
+                        <!-- Segundo Factor de Autenticación (2FA) -->
+                        <div class="col-12">
+                            <div class="card bg-light border-danger">
+                                <div class="card-body">
+                                    <h6 class="card-title text-danger fw-bold"><i class="bi bi-key-fill me-1"></i>Validación de Segundo Factor (2FA / PIN)</h6>
+                                    <p class="text-muted small mb-2">Ingrese su código TOTP o PIN de seguridad institucional (PIN por defecto en simulación: <code>123456</code>):</p>
+                                    <div class="input-group">
+                                        <input type="password" name="pin_2fa" id="pin_2fa" class="form-control" placeholder="Ingrese PIN o código 2FA" required maxlength="10">
+                                        <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger"><i class="bi bi-check-circle me-1"></i>Confirmar y Foliar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,473 @@
+/*
+ * CESFAM Farmacia Asistencial - Diseño Institucional INACAP
+ * Sistema de Gestión y Simulación Asistencial APS
+ * Autores: Egon Muñoz Muttel & Renato Suazo Burgos - INACAP 2026
+ */
+
+:root {
+    --inacap-red: #C8102E;
+    --inacap-red-hover: #A60D26;
+    --inacap-red-dark: #7F0A1D;
+    --inacap-red-light: #FEE2E2;
+    --inacap-black: #09090B;
+    --inacap-dark: #18181B;
+    --inacap-zinc-800: #27272A;
+    --inacap-zinc-400: #A1A1AA;
+    --inacap-zinc-300: #D4D4D8;
+
+    --cesfam-primary: #C8102E;
+    --cesfam-primary-light: #A60D26;
+    --cesfam-secondary: #10B981;
+    --cesfam-danger: #EF4444;
+    --cesfam-warning: #F59E0B;
+    --cesfam-info: #3B82F6;
+    --cesfam-dark: #18181B;
+    --cesfam-bg: #F1F5F9;
+    --cesfam-card-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --cesfam-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+    font-family: var(--cesfam-font);
+    background-color: var(--cesfam-bg);
+    color: #18181B;
+    font-size: 0.925rem;
+    margin: 0;
+}
+
+/* ============================================================
+   TOP HEADER BAR (INACAP INSTITUTIONAL HEADER)
+   ============================================================ */
+.inacap-topbar {
+    background-color: #FFFFFF;
+    border-bottom: 2px solid var(--inacap-red);
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    padding: 0.55rem 1.25rem;
+}
+
+.inacap-logo-img {
+    height: 36px;
+    width: auto;
+    object-fit: contain;
+}
+
+.topbar-divider {
+    height: 28px;
+    width: 1px;
+    background-color: #E4E4E7;
+}
+
+.badge-simulacion-aps {
+    background-color: #FEF2F2;
+    color: var(--inacap-red);
+    border: 1px solid #FECACA;
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Selector Rápido de Rol (1-Clic) */
+.role-switcher-box {
+    background-color: #F4F4F5;
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid #E4E4E7;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.role-switcher-btn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-decoration: none;
+    color: #3F3F46;
+    transition: all 0.15s ease;
+    border: none;
+    background: transparent;
+}
+
+.role-switcher-btn:hover {
+    background-color: #E4E4E7;
+    color: #09090B;
+}
+
+.role-switcher-btn.active-red {
+    background-color: var(--inacap-red);
+    color: #FFFFFF;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.role-switcher-btn.active-dark {
+    background-color: var(--inacap-dark);
+    color: #FFFFFF;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.user-avatar-circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-color: var(--inacap-red);
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.9rem;
+    box-shadow: 0 1px 3px rgba(200, 16, 46, 0.3);
+}
+
+/* ============================================================
+   LAYOUT PRINCIPAL CON SIDEBAR LATERAL OSCURO (ZINC-950)
+   ============================================================ */
+.app-wrapper {
+    display: flex;
+    flex: 1;
+    min-height: calc(100vh - 61px);
+}
+
+.inacap-sidebar {
+    width: 280px;
+    background-color: var(--inacap-black);
+    color: var(--inacap-zinc-300);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    border-right: 1px solid var(--inacap-zinc-800);
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.sidebar-module-card {
+    background-color: rgba(24, 24, 27, 0.95);
+    border: 1px solid var(--inacap-zinc-800);
+    border-left: 4px solid var(--inacap-red);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+}
+
+.sidebar-nav-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--inacap-zinc-300);
+    margin-bottom: 6px;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+
+.sidebar-nav-link:hover {
+    background-color: var(--inacap-dark);
+    color: #FFFFFF;
+}
+
+.sidebar-nav-link.active {
+    background-color: var(--inacap-red);
+    color: #FFFFFF;
+    font-weight: 700;
+    box-shadow: 0 4px 12px rgba(200, 16, 46, 0.35);
+}
+
+.sidebar-nav-link .nav-title {
+    font-size: 0.87rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.sidebar-nav-link.active .nav-title {
+    font-weight: 700;
+}
+
+.sidebar-nav-link .nav-desc {
+    font-size: 0.72rem;
+    color: var(--inacap-zinc-400);
+    margin-top: 1px;
+}
+
+.sidebar-nav-link.active .nav-desc {
+    color: #FECACA;
+}
+
+.sidebar-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.sidebar-badge-green {
+    background-color: #064E3B;
+    color: #34D399;
+    border: 1px solid #065F46;
+}
+
+.sidebar-badge-red {
+    background-color: #450A0A;
+    color: #FCA5A5;
+    border: 1px solid #7F1D1D;
+}
+
+.sidebar-badge-amber {
+    background-color: #451A03;
+    color: #FCD34D;
+    border: 1px solid #78350F;
+}
+
+.sidebar-nav-link.active .sidebar-badge {
+    background-color: var(--inacap-black);
+    color: #FFFFFF;
+    border-color: var(--inacap-zinc-800);
+}
+
+.sidebar-footer {
+    padding: 14px 16px;
+    border-top: 1px solid var(--inacap-zinc-800);
+    background-color: var(--inacap-black);
+    font-size: 0.74rem;
+    color: var(--inacap-zinc-400);
+}
+
+.app-main-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem 2rem;
+    max-width: 1650px;
+}
+
+/* ============================================================
+   CARDS, KPIs Y TABLAS CLÍNICAS
+   ============================================================ */
+.card {
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    box-shadow: var(--cesfam-card-shadow);
+    background-color: #FFFFFF;
+}
+
+.card-header {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #E2E8F0;
+    font-weight: 700;
+    border-radius: 12px 12px 0 0 !important;
+    padding: 0.9rem 1.25rem;
+}
+
+.kpi-card {
+    border-left: 4px solid var(--inacap-red);
+    border-radius: 12px;
+}
+
+.kpi-card.success { border-left-color: #10B981; }
+.kpi-card.warning { border-left-color: #F59E0B; }
+.kpi-card.danger { border-left-color: #C8102E; }
+.kpi-card.info { border-left-color: #18181B; }
+
+.kpi-value {
+    font-size: 2.1rem;
+    font-weight: 800;
+    color: #09090B;
+    line-height: 1.1;
+}
+
+.kpi-label {
+    font-size: 0.76rem;
+    color: #64748B;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+}
+
+.table-cesfam thead th {
+    background-color: #18181B;
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border: none;
+    padding: 11px 14px;
+}
+
+.table-cesfam tbody td {
+    padding: 10px 14px;
+    vertical-align: middle;
+    border-bottom: 1px solid #F1F5F9;
+}
+
+.table-cesfam tbody tr:hover {
+    background-color: #F8FAFC;
+}
+
+/* Semáforo FEFO */
+.badge-vencido { background-color: #7F1D1D !important; color: #FFF !important; }
+.badge-critico { background-color: #DC2626 !important; color: #FFF !important; }
+.badge-alto { background-color: #EA580C !important; color: #FFF !important; }
+.badge-medio { background-color: #F59E0B !important; color: #000 !important; }
+.badge-normal { background-color: #10B981 !important; color: #FFF !important; }
+
+.fefo-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.fefo-indicator.fefo-first {
+    background-color: #D1FAE5;
+    color: #065F46;
+    border: 1px solid #10B981;
+}
+
+.fefo-indicator.fefo-blocked {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #EF4444;
+}
+
+/* Botones Institucionales */
+.btn-cesfam {
+    background-color: var(--inacap-red);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-weight: 700;
+    transition: all 0.15s;
+}
+
+.btn-cesfam:hover {
+    background-color: var(--inacap-red-hover);
+    color: #FFFFFF;
+}
+
+.btn-dispensar {
+    background-color: #059669;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    font-weight: 700;
+}
+
+.btn-dispensar:hover {
+    background-color: #047857;
+    color: #FFFFFF;
+}
+
+/* ============================================================
+   LOGIN PAGE (DARK ZINC-950 + INACAP RED RADIAL TEXTURE)
+   ============================================================ */
+.login-dark-bg {
+    min-height: 100vh;
+    background-color: #09090B;
+    background-image: radial-gradient(rgba(200, 16, 46, 0.22) 1px, transparent 1px);
+    background-size: 24px 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem 1rem;
+}
+
+.login-logo-box {
+    background-color: rgba(255, 255, 255, 0.97);
+    padding: 14px 24px;
+    border-radius: 16px;
+    border: 2px solid var(--inacap-red);
+    display: inline-block;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    margin-bottom: 1.25rem;
+}
+
+.login-dark-card {
+    background-color: rgba(24, 24, 27, 0.96);
+    border: 1px solid #27272A;
+    border-radius: 16px;
+    padding: 2rem 2.25rem;
+    max-width: 450px;
+    width: 100%;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    color: #F4F4F5;
+}
+
+.login-dark-input {
+    background-color: #09090B !important;
+    border: 1px solid #3F3F46 !important;
+    color: #FFFFFF !important;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.9rem;
+}
+
+.login-dark-input:focus {
+    border-color: var(--inacap-red) !important;
+    box-shadow: 0 0 0 3px rgba(200, 16, 46, 0.35) !important;
+}
+
+.quick-role-card {
+    background-color: #09090B;
+    border: 1px solid #3F3F46;
+    border-radius: 8px;
+    padding: 8px 11px;
+    text-align: left;
+    color: #E4E4E7;
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.15s;
+}
+
+.quick-role-card:hover {
+    background-color: #27272A;
+    border-color: var(--inacap-red);
+    color: #FFFFFF;
+}
+
+.quick-role-card.qf-highlight {
+    background-color: rgba(127, 10, 29, 0.35);
+    border-color: rgba(200, 16, 46, 0.6);
+}
+
+.quick-role-card.qf-highlight:hover {
+    background-color: rgba(200, 16, 46, 0.45);
+}
+
+@media (max-width: 991.98px) {
+    .app-wrapper {
+        flex-direction: column;
+    }
+    .inacap-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--inacap-zinc-800);
+    }
+    .app-main-content {
+        padding: 1rem;
+    }
+}
+
+@media print {
+    .inacap-topbar, .inacap-sidebar, .no-print, .btn {
+        display: none !important;
+    }
+    .app-main-content {
+        padding: 0 !important;
+    }
+}

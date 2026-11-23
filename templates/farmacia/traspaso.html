@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Traspaso de Stock{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h4><i class="bi bi-arrow-repeat me-2"></i>Traspaso de Stock (FEFO)</h4>
+    <div class="card mt-3"><div class="card-body">
+        <form method="post">{% csrf_token %}
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Lote a traspasar</label><select name="lote" class="form-select" required>{% for l in lotes %}<option value="{{ l.pk }}">{{ l.medicamento.nombre_generico }} - Lote {{ l.numero_lote }} ({{ l.ubicacion.nombre }}, Stock: {{ l.cantidad_actual }}, Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }})</option>{% endfor %}</select></div>
+                <div class="col-md-3"><label class="form-label">Cantidad</label><input type="number" name="cantidad" class="form-control" min="1" required></div>
+                <div class="col-md-3"><label class="form-label">Destino</label><select name="destino" class="form-select" required>{% for u in ubicaciones %}<option value="{{ u.pk }}">{{ u.nombre }}</option>{% endfor %}</select></div>
+            </div>
+            <div class="mt-4"><button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Realizar Traspaso</button></div>
+        </form>
+    </div></div>
+</div>
+{% endblock %}

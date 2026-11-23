@@ -1,0 +1,344 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Sistema Web de Gestión y Simulación Asistencial para Farmacia CESFAM - INACAP">
+    <meta name="authors" content="Egon Muñoz Muttel, Renato Suazo Burgos">
+    <title>{% block title %}CESFAM Farmacia Asistencial{% endblock %} | INACAP</title>
+
+    <!-- Bootstrap 5.3 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Google Fonts (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- CSS Institucional INACAP + CESFAM -->
+    <link rel="stylesheet" href="{% static 'css/cesfam.css' %}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="d-flex flex-column min-vh-100">
+    {% if user.is_authenticated %}
+    <!-- ============================================================
+         ENCABEZADO SUPERIOR INSTITUCIONAL CON LOGO INACAP Y 1-CLIC ROL
+         ============================================================ -->
+    <header class="inacap-topbar no-print">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <!-- Marca Institucional y Logo Oficial INACAP -->
+            <div class="d-flex align-items-center gap-3">
+                <a href="{% url 'core:dashboard' %}" class="text-decoration-none d-flex align-items-center">
+                    <img src="{% static 'img/inacap_logo.png' %}" alt="Logo INACAP" class="inacap-logo-img">
+                </a>
+                <div class="topbar-divider d-none d-sm-block"></div>
+                <div>
+                    <div class="d-flex align-items-center gap-2">
+                        <h1 class="h6 fw-bolder text-dark mb-0" style="letter-spacing: -0.02em;">
+                            Farmacia Asistencial CESFAM
+                        </h1>
+                        <span class="badge-simulacion-aps">Simulación APS</span>
+                        <span class="badge bg-dark text-white d-none d-md-inline-block" style="font-size: 0.68rem;">
+                            <i class="bi bi-database-fill-check me-1"></i>PostgreSQL 18
+                        </span>
+                    </div>
+                    <p class="text-muted mb-0" style="font-size: 0.74rem; font-weight: 500;">
+                        Gestión Farmacéutica • Lógica FEFO • Gratuidad $0 Copago • Autores: Egon Muñoz & Renato Suazo
+                    </p>
+                </div>
+            </div>
+
+            <!-- Selector Rápido de Rol (1-Clic) y Perfil de Usuario -->
+            <div class="d-flex align-items-center gap-3">
+                <!-- Selector 1-Clic para Defensa Académica -->
+                <div class="role-switcher-box d-none d-lg-inline-flex">
+                    <span class="px-2 text-dark fw-bold" style="font-size: 0.74rem;">
+                        <i class="bi bi-stars text-danger me-1"></i>Simular Rol:
+                    </span>
+                    <a href="{% url 'core:simular_rol' 'admin' %}"
+                       class="role-switcher-btn {% if user.rol == 'admin' %}active-dark{% endif %}">
+                        Admin
+                    </a>
+                    <a href="{% url 'core:simular_rol' 'quimico' %}"
+                       class="role-switcher-btn {% if user.rol == 'quimico' %}active-red{% endif %}">
+                        Q.F.
+                    </a>
+                    <a href="{% url 'core:simular_rol' 'tecnico' %}"
+                       class="role-switcher-btn {% if user.rol == 'tecnico' %}active-red{% endif %}">
+                        Técnico
+                    </a>
+                    <a href="{% url 'core:simular_rol' 'clinico' %}"
+                       class="role-switcher-btn {% if user.rol == 'clinico' %}active-dark{% endif %}">
+                        Clínico
+                    </a>
+                </div>
+
+                <!-- Datos del Usuario Activo -->
+                <div class="d-flex align-items-center gap-2 ps-3 border-start">
+                    <div class="text-end d-none d-sm-block">
+                        <div class="fw-bold text-dark" style="font-size: 0.84rem; line-height: 1.2;">
+                            {{ user.get_full_name|default:user.username }}
+                        </div>
+                        <div class="d-flex align-items-center justify-content-end gap-1 mt-1">
+                            <span class="badge {% if user.rol == 'admin' %}bg-dark{% elif user.rol == 'quimico' %}bg-danger{% elif user.rol == 'clinico' %}bg-warning text-dark{% else %}bg-secondary{% endif %}" style="font-size: 0.68rem;">
+                                {{ user.get_rol_display }}
+                            </span>
+                            <span class="text-muted font-monospace" style="font-size: 0.72rem;">RUT: {{ user.rut }}</span>
+                        </div>
+                    </div>
+
+                    <div class="user-avatar-circle" title="{{ user.get_full_name }}">
+                        {{ user.first_name|first|default:user.username|first|upper }}
+                    </div>
+
+                    <form method="post" action="{% url 'core:logout' %}" class="m-0">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Cerrar Sesión Segura">
+                            <i class="bi bi-box-arrow-right fs-5"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ============================================================
+         CUERPO PRINCIPAL: SIDEBAR LATERAL OSCURO + CONTENIDO
+         ============================================================ -->
+    <div class="app-wrapper">
+        <!-- Menú Lateral Izquierdo (Estilo INACAP Dark Zinc-950) -->
+        <aside class="inacap-sidebar no-print">
+            <div class="p-3">
+                <!-- Encabezado del Módulo con Marca INACAP -->
+                <div class="sidebar-module-card">
+                    <div class="d-flex align-items-center gap-2 fw-bold text-uppercase" style="color: var(--inacap-red); font-size: 0.74rem; letter-spacing: 0.05em;">
+                        <i class="bi bi-hospital-fill"></i>
+                        <span>Atención Primaria</span>
+                    </div>
+                    <div class="text-white fw-bolder mt-1" style="font-size: 0.92rem;">Farmacia Central CESFAM</div>
+                    <div style="font-size: 0.74rem; color: #D4D4D8;">Docencia & Simulación INACAP</div>
+                </div>
+
+                <!-- Lista de Navegación Lateral -->
+                <nav>
+                    <!-- 1. Dashboard -->
+                    <a href="{% url 'core:dashboard' %}"
+                       class="sidebar-nav-link {% if request.path == '/' %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-grid-1x2-fill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Dashboard & Indicadores</div>
+                                <div class="nav-desc">Métricas operativas y alertas</div>
+                            </div>
+                        </div>
+                    </a>
+
+                    <!-- 2. Dispensación Asistencial -->
+                    {% if user.tiene_permiso_dispensacion %}
+                    <a href="{% url 'dispensacion:dispensar' %}"
+                       class="sidebar-nav-link {% if '/dispensacion/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-clipboard2-check-fill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Dispensación Asistencial</div>
+                                <div class="nav-desc">Entrega a $0 copago con FEFO</div>
+                            </div>
+                        </div>
+                        <span class="sidebar-badge sidebar-badge-green">$0 Copago</span>
+                    </a>
+                    {% endif %}
+
+                    <!-- 3. Inventario, Bodega & FEFO -->
+                    {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
+                    <a href="{% url 'farmacia:lote_list' %}"
+                       class="sidebar-nav-link {% if '/farmacia/lotes/' in request.path or '/farmacia/movimientos/' in request.path or '/farmacia/alertas/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-boxes fs-6"></i>
+                            <div>
+                                <div class="nav-title">Inventario, Bodega & FEFO</div>
+                                <div class="nav-desc">Bodega vs. Vitrina y lotes</div>
+                            </div>
+                        </div>
+                        <span class="sidebar-badge sidebar-badge-amber">FEFO</span>
+                    </a>
+
+                    <!-- 4. Catálogo de Medicamentos -->
+                    <a href="{% url 'farmacia:medicamento_list' %}"
+                       class="sidebar-nav-link {% if '/farmacia/medicamentos/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-capsule-pill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Arsenal Farmacológico</div>
+                                <div class="nav-desc">Catálogo y stock crítico APS</div>
+                            </div>
+                        </div>
+                    </a>
+
+                    <!-- 4b. Abastecimiento y Pedidos CENABAST -->
+                    <a href="{% url 'farmacia:orden_list' %}"
+                       class="sidebar-nav-link {% if '/farmacia/abastecimiento/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-truck fs-6"></i>
+                            <div>
+                                <div class="nav-title">Pedidos & CENABAST</div>
+                                <div class="nav-desc">Órdenes por quiebre y remesas</div>
+                            </div>
+                        </div>
+                        <span class="sidebar-badge sidebar-badge-amber">Auto</span>
+                    </a>
+                    {% endif %}
+
+                    <!-- 5. Pacientes & Recetas GES -->
+                    <a href="{% url 'core:paciente_list' %}"
+                       class="sidebar-nav-link {% if '/pacientes/' in request.path or '/ges/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-people-fill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Pacientes & Programas GES</div>
+                                <div class="nav-desc">RUT Módulo 11 y cuotas AUGE</div>
+                            </div>
+                        </div>
+                    </a>
+
+                    <!-- 6. Libro Oficial de Controlados -->
+                    {% if user.tiene_permiso_controlados %}
+                    <a href="{% url 'controlados:libro' %}"
+                       class="sidebar-nav-link {% if '/controlados/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-journal-bookmark-fill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Libro de Controlados</div>
+                                <div class="nav-desc">D.S. 404/405 ISP + PIN 2FA</div>
+                            </div>
+                        </div>
+                        <span class="sidebar-badge sidebar-badge-red">2FA</span>
+                    </a>
+                    {% endif %}
+
+                    <!-- 7. Carros Clínicos -->
+                    {% if user.tiene_permiso_carros %}
+                    <a href="{% url 'carros_clinicos:carro_list' %}"
+                       class="sidebar-nav-link {% if '/carros/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-heart-pulse-fill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Carros Clínicos</div>
+                                <div class="nav-desc">Carro de Paro y Unidosis</div>
+                            </div>
+                        </div>
+                        <span class="sidebar-badge sidebar-badge-red">Urgencia</span>
+                    </a>
+                    {% endif %}
+
+                    <!-- 8. Reportes & Auditoría Forense PostgreSQL -->
+                    {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
+                    <a href="{% url 'core:auditoria_list' %}"
+                       class="sidebar-nav-link {% if '/auditoria/' in request.path or '/reportes/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-file-earmark-spreadsheet-fill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Reportes & Auditoría</div>
+                                <div class="nav-desc">Excel, PDF y log PostgreSQL</div>
+                            </div>
+                        </div>
+                    </a>
+                    {% endif %}
+
+                    <!-- 9. Gestión de Usuarios RBAC -->
+                    {% if user.rol == 'admin' %}
+                    <a href="{% url 'core:usuario_list' %}"
+                       class="sidebar-nav-link {% if '/usuarios/' in request.path %}active{% endif %}">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-shield-lock-fill fs-6"></i>
+                            <div>
+                                <div class="nav-title">Gestión de Usuarios</div>
+                                <div class="nav-desc">Administración de roles RBAC</div>
+                            </div>
+                        </div>
+                    </a>
+                    {% endif %}
+                </nav>
+            </div>
+
+            <!-- Pie del Sidebar: Indicador de Simulación, Normativa y Base de Datos PostgreSQL -->
+            <div class="sidebar-footer">
+                <div class="d-flex align-items-center gap-1 fw-bold mb-1" style="color: var(--inacap-red);">
+                    <i class="bi bi-shield-check"></i>
+                    <span>Proyecto Integrado INACAP</span>
+                </div>
+                <p class="mb-2" style="line-height: 1.4; color: #D4D4D8;">
+                    Entrenamiento para Química y Farmacia y Técnico en Farmacia. Normativa ISP D.S. 404/405 y Ley N° 21.719.
+                </p>
+                <div class="p-2 rounded bg-dark border border-secondary border-opacity-25 d-flex align-items-center justify-content-between">
+                    <span class="text-light fw-semibold" style="font-size: 0.7rem;">
+                        <i class="bi bi-database-fill text-success me-1"></i>BD: PostgreSQL 18
+                    </span>
+                    <span class="badge bg-success" style="font-size: 0.62rem;">Conectado</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Área Principal de Contenido -->
+        <main class="app-main-content">
+            <!-- Sub-barra rápida de navegación contextual -->
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3 pb-2 border-bottom no-print">
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{% url 'dispensacion:receta_list' %}" class="btn btn-sm {% if '/dispensacion/recetas/' in request.path %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+                        <i class="bi bi-file-earmark-medical me-1"></i>Recetas Médicas
+                    </a>
+                    <a href="{% url 'dispensacion:historial' %}" class="btn btn-sm {% if '/dispensacion/historial/' in request.path %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+                        <i class="bi bi-clock-history me-1"></i>Historial Dispensaciones
+                    </a>
+                    <a href="{% url 'farmacia:movimiento_list' %}" class="btn btn-sm {% if '/farmacia/movimientos/' in request.path %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+                        <i class="bi bi-arrow-left-right me-1"></i>Traspasos Bodega/Vitrina
+                    </a>
+                    <a href="{% url 'farmacia:alertas_vencimiento' %}" class="btn btn-sm {% if '/farmacia/alertas/' in request.path %}btn-danger{% else %}btn-outline-danger{% endif %}">
+                        <i class="bi bi-exclamation-triangle me-1"></i>Semáforo FEFO & Alertas
+                    </a>
+                    <a href="{% url 'ges:inscripcion_list' %}" class="btn btn-sm {% if '/ges/' in request.path %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+                        <i class="bi bi-shield-check me-1"></i>Canastas y Cuotas GES
+                    </a>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'reportes:exportar_excel' %}" class="btn btn-sm btn-success">
+                        <i class="bi bi-file-earmark-excel me-1"></i>Exportar Excel (.xlsx)
+                    </a>
+                    <a href="{% url 'reportes:exportar_pdf' %}" class="btn btn-sm btn-danger">
+                        <i class="bi bi-file-earmark-pdf me-1"></i>Reporte PDF
+                    </a>
+                </div>
+            </div>
+
+            <!-- Alertas / Mensajes de Django -->
+            {% if messages %}
+            <div class="mb-3 no-print">
+                {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show shadow-sm py-2" role="alert">
+                    {% if message.tags == 'success' %}<i class="bi bi-check-circle-fill me-2"></i>{% endif %}
+                    {% if message.tags == 'error' or message.tags == 'danger' %}<i class="bi bi-exclamation-octagon-fill me-2"></i>{% endif %}
+                    {% if message.tags == 'warning' %}<i class="bi bi-exclamation-triangle-fill me-2"></i>{% endif %}
+                    {% if message.tags == 'info' %}<i class="bi bi-info-circle-fill me-2"></i>{% endif %}
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% else %}
+    <main class="flex-grow-1">
+        {% block unauth_content %}{% endblock %}
+    </main>
+    {% endif %}
+
+    <!-- Bootstrap 5.3 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <!-- JS personalizado -->
+    <script src="{% static 'js/cesfam.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

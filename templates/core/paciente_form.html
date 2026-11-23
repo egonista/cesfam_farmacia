@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Nuevo Paciente{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h4><i class="bi bi-person-plus me-2"></i>Registrar Nuevo Paciente</h4>
+    <div class="card mt-3">
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">RUT</label><input type="text" name="rut" class="form-control" data-validate-rut required value="{{ datos.rut|default:'' }}"><div class="invalid-feedback">RUT inválido</div></div>
+                    <div class="col-md-4"><label class="form-label">Nombres</label><input type="text" name="nombres" class="form-control" required value="{{ datos.nombres|default:'' }}"></div>
+                    <div class="col-md-4"><label class="form-label">Apellido Paterno</label><input type="text" name="apellido_paterno" class="form-control" required value="{{ datos.apellido_paterno|default:'' }}"></div>
+                    <div class="col-md-4"><label class="form-label">Apellido Materno</label><input type="text" name="apellido_materno" class="form-control" required value="{{ datos.apellido_materno|default:'' }}"></div>
+                    <div class="col-md-4"><label class="form-label">Fecha de Nacimiento</label><input type="date" name="fecha_nacimiento" class="form-control" required></div>
+                    <div class="col-md-4"><label class="form-label">Sexo</label><select name="sexo" class="form-select"><option value="M">Masculino</option><option value="F">Femenino</option><option value="I">Intersex</option></select></div>
+                    <div class="col-md-4"><label class="form-label">Dirección</label><input type="text" name="direccion" class="form-control"></div>
+                    <div class="col-md-4"><label class="form-label">Teléfono</label><input type="text" name="telefono" class="form-control"></div>
+                    <div class="col-md-4"><label class="form-label">Email</label><input type="email" name="email" class="form-control"></div>
+                    <div class="col-md-4"><label class="form-label">Previsión</label><select name="prevision" class="form-select"><option value="fonasa_a">FONASA A</option><option value="fonasa_b">FONASA B</option><option value="fonasa_c">FONASA C</option><option value="fonasa_d">FONASA D</option><option value="prais">PRAIS</option></select></div>
+                    <div class="col-md-4"><label class="form-label">Paciente Crónico</label><div class="form-check mt-2"><input type="checkbox" name="cronico" class="form-check-input" id="cronico"><label class="form-check-label" for="cronico">Sí, es paciente crónico</label></div></div>
+                </div>
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Guardar Paciente</button>
+                    <a href="{% url 'core:paciente_list' %}" class="btn btn-outline-secondary ms-2">Cancelar</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

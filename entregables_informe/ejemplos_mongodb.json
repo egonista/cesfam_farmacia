@@ -1,0 +1,328 @@
+{
+  "auditoria_inmutable": [
+    {
+      "timestamp": "2026-10-19T18:40:37.112680+00:00",
+      "ip_origen": "192.168.1.105",
+      "usuario_id": 3,
+      "usuario_username": "tecnico_alvarez",
+      "rol": "tecnico",
+      "accion": "Dispensación asistencial gratuita",
+      "entidad_afectada": "Dispensación #1 - Receta REC-2026-00101",
+      "valores_anteriores": {
+        "estado_receta": "pendiente",
+        "copago": 0
+      },
+      "valores_nuevos": {
+        "estado_receta": "total",
+        "paciente": "11.234.567-1",
+        "tercero_rut": "20.123.456-7",
+        "lote_dispensado": "LOS-2026-A1",
+        "cantidad": 60
+      }
+    },
+    {
+      "timestamp": "2026-10-20T18:40:37.112694+00:00",
+      "ip_origen": "192.168.1.110",
+      "usuario_id": 2,
+      "usuario_username": "qf_suazo",
+      "rol": "quimico",
+      "accion": "Asiento en Libro Oficial Digital de Controlados",
+      "entidad_afectada": "LibroControlados Folio #2",
+      "valores_anteriores": {
+        "saldo": 200
+      },
+      "valores_nuevos": {
+        "saldo": 80,
+        "egreso": 120,
+        "2fa_validado": true
+      }
+    },
+    {
+      "timestamp": "2026-10-21T13:40:37.112698+00:00",
+      "ip_origen": "192.168.1.115",
+      "usuario_id": 2,
+      "usuario_username": "qf_suazo",
+      "rol": "quimico",
+      "accion": "Advertencia de Override FEFO",
+      "entidad_afectada": "Lote LOS-2026-B2",
+      "valores_anteriores": {
+        "lote_fefo_sugerido": "LOS-2026-A1"
+      },
+      "valores_nuevos": {
+        "lote_forzado": "LOS-2026-B2",
+        "justificacion": "Requerimiento de presentación en frasco sellado para paciente con movilidad reducida"
+      }
+    },
+    {
+      "timestamp": "2026-10-21T18:43:34.520782+00:00",
+      "ip_origen": "127.0.0.1",
+      "usuario_id": 1,
+      "usuario_username": "tecnico_test",
+      "rol": "tecnico",
+      "metodo": "POST",
+      "ruta": "/dispensacion/dispensar/1/",
+      "accion": "POST /dispensacion/dispensar/1/",
+      "entidad_afectada": "dispensacion",
+      "valores_anteriores": {},
+      "valores_nuevos": {}
+    },
+    {
+      "timestamp": "2026-10-21T18:46:37.602548+00:00",
+      "ip_origen": "127.0.0.1",
+      "usuario_id": 1,
+      "usuario_username": "Técnico Prueba (Técnico en Farmacia)",
+      "rol": "tecnico",
+      "accion": "Dispensación realizada",
+      "entidad_afectada": "Receta REC-INT-001",
+      "valores_anteriores": {},
+      "valores_nuevos": {
+        "dispensacion_id": 1,
+        "paciente": "Integral Test, Paciente (11.234.567-1)",
+        "retiro_tercero": true,
+        "tercero": "Claudia Integral (RUT: 20.123.456-5)"
+      }
+    },
+    {
+      "timestamp": "2026-10-21T18:46:37.603534+00:00",
+      "ip_origen": "127.0.0.1",
+      "usuario_id": 1,
+      "usuario_username": "tecnico_test",
+      "rol": "tecnico",
+      "metodo": "POST",
+      "ruta": "/dispensacion/dispensar/1/",
+      "accion": "POST /dispensacion/dispensar/1/",
+      "entidad_afectada": "dispensacion",
+      "valores_anteriores": {},
+      "valores_nuevos": {}
+    },
+    {
+      "timestamp": "2026-10-21T18:47:12.436745+00:00",
+      "ip_origen": "127.0.0.1",
+      "usuario_id": 1,
+      "usuario_username": "tecnico_test",
+      "rol": "tecnico",
+      "accion": "Dispensación realizada",
+      "entidad_afectada": "Receta REC-INT-001",
+      "valores_anteriores": {},
+      "valores_nuevos": {
+        "dispensacion_id": 1,
+        "paciente": "Integral Test, Paciente (11.234.567-1)",
+        "retiro_tercero": true,
+        "tercero": "Claudia Integral (RUT: 20.123.456-5)"
+      }
+    },
+    {
+      "timestamp": "2026-10-21T18:47:12.437770+00:00",
+      "ip_origen": "127.0.0.1",
+      "usuario_id": 1,
+      "usuario_username": "tecnico_test",
+      "rol": "tecnico",
+      "metodo": "POST",
+      "ruta": "/dispensacion/dispensar/1/",
+      "accion": "POST /dispensacion/dispensar/1/",
+      "entidad_afectada": "dispensacion",
+      "valores_anteriores": {},
+      "valores_nuevos": {}
+    },
+    {
+      "timestamp": "2026-10-21T18:49:00.960466+00:00",
+      "ip_origen": "127.0.0.1",
+      "usuario_id": 1,
+      "usuario_username": "tecnico_test",
+      "rol": "tecnico",
+      "accion": "Dispensación realizada",
+      "entidad_afectada": "Receta REC-08540",
+      "valores_anteriores": {},
+      "valores_nuevos": {
+        "dispensacion_id": 1,
+        "paciente": "Integral Test, Paciente (11.234.567-1)",
+        "retiro_tercero": true,
+        "tercero": "Claudia Integral (RUT: 20.123.456-5)"
+      }
+    },
+    {
+      "timestamp": "2026-10-21T18:49:00.961450+00:00",
+      "ip_origen": "127.0.0.1",
+      "usuario_id": 1,
+      "usuario_username": "tecnico_test",
+      "rol": "tecnico",
+      "metodo": "POST",
+      "ruta": "/dispensacion/dispensar/1/",
+      "accion": "POST /dispensacion/dispensar/1/",
+      "entidad_afectada": "dispensacion",
+      "valores_anteriores": {},
+      "valores_nuevos": {}
+    }
+  ],
+  "recursos_fhir": [
+    {
+      "resourceType": "Patient",
+      "id": "paciente-11234567-1",
+      "identifier": [
+        {
+          "use": "official",
+          "system": "urn:oid:2.16.152.1.2.1",
+          "value": "11.234.567-1"
+        }
+      ],
+      "name": [
+        {
+          "use": "official",
+          "family": "Pérez",
+          "_family": {
+            "extension": [
+              {
+                "url": "http://hl7.org/fhir/StructureDefinition/humanname-mothers-family",
+                "valueString": "Soto"
+              }
+            ]
+          },
+          "given": [
+            "Juan",
+            "Carlos"
+          ]
+        }
+      ],
+      "gender": "male",
+      "birthDate": "1958-04-15",
+      "telecom": [
+        {
+          "system": "phone",
+          "value": "+56987654321",
+          "use": "mobile"
+        }
+      ],
+      "address": [
+        {
+          "use": "home",
+          "line": [
+            "Av. Los Aromos 1240"
+          ],
+          "city": "La Florida",
+          "state": "Metropolitana"
+        }
+      ]
+    },
+    {
+      "resourceType": "MedicationRequest",
+      "id": "receta-2026-00101",
+      "status": "completed",
+      "intent": "order",
+      "subject": {
+        "reference": "Patient/paciente-11234567-1",
+        "display": "Juan Carlos Pérez Soto"
+      },
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "system": "http://minsal.cl/farmaco/atc",
+            "code": "C09CA01",
+            "display": "Losartán Potásico 50 mg comprimido"
+          }
+        ]
+      },
+      "authoredOn": "2026-10-19T18:40:37.161145+00:00",
+      "requester": {
+        "display": "Dr. Matías Alarcón Paredes (SIS: MED-48291)"
+      },
+      "dispenseRequest": {
+        "validityPeriod": {
+          "start": "2026-10-19T18:40:37.161158+00:00",
+          "end": "2026-11-18T18:40:37.161161+00:00"
+        },
+        "numberOfRepeatsAllowed": 1,
+        "quantity": {
+          "value": 60,
+          "unit": "comprimido"
+        }
+      }
+    },
+    {
+      "resourceType": "MedicationDispense",
+      "id": "dispensacion-2026-00001",
+      "status": "completed",
+      "medicationCodeableConcept": {
+        "coding": [
+          {
+            "system": "http://minsal.cl/farmaco/atc",
+            "code": "C09CA01",
+            "display": "Losartán Potásico 50 mg"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/paciente-11234567-1"
+      },
+      "authorizingPrescription": [
+        {
+          "reference": "MedicationRequest/receta-2026-00101"
+        }
+      ],
+      "performer": [
+        {
+          "actor": {
+            "display": "Rodrigo Álvarez Castro (Técnico en Farmacia)"
+          }
+        }
+      ],
+      "quantity": {
+        "value": 60,
+        "unit": "comprimido"
+      },
+      "whenHandedOver": "2026-10-19T18:40:37.161166+00:00",
+      "note": [
+        {
+          "text": "Retirado por tercero autorizado: Carolina Pérez Soto (RUT: 20.123.456-7)"
+        }
+      ]
+    }
+  ],
+  "alertas_sistema": [
+    {
+      "timestamp": "2026-10-21T18:40:37.166583+00:00",
+      "tipo": "vencimiento_critico",
+      "plazo_dias": 30,
+      "medicamento": "Losartán Potásico 50 mg",
+      "lote": "LOS-2026-A1",
+      "dias_restantes": 20,
+      "fecha_vencimiento": "2026-11-10",
+      "ubicacion": "Vitrina de Dispensación",
+      "nivel": "CRITICO",
+      "leido": false
+    },
+    {
+      "timestamp": "2026-10-21T18:40:37.166595+00:00",
+      "tipo": "vencimiento_medio",
+      "plazo_dias": 60,
+      "medicamento": "Metformina Clorhidrato 850 mg",
+      "lote": "MET-2026-01",
+      "dias_restantes": 45,
+      "fecha_vencimiento": "2026-12-05",
+      "ubicacion": "Vitrina de Dispensación",
+      "nivel": "MEDIO",
+      "leido": false
+    },
+    {
+      "timestamp": "2026-10-21T18:40:37.166598+00:00",
+      "tipo": "vencimiento_preventivo",
+      "plazo_dias": 90,
+      "medicamento": "Paracetamol 500 mg",
+      "lote": "PAR-2026-01",
+      "dias_restantes": 85,
+      "fecha_vencimiento": "2027-01-14",
+      "ubicacion": "Vitrina de Dispensación",
+      "nivel": "PREVENTIVO",
+      "leido": false
+    },
+    {
+      "timestamp": "2026-10-21T18:40:37.166601+00:00",
+      "tipo": "quiebre_stock",
+      "medicamento": "Morfina Clorhidrato 10 mg/ml",
+      "stock_actual": 45,
+      "stock_minimo": 20,
+      "nivel": "INFORMATIVO",
+      "mensaje": "Stock cercano a umbral de reposición ministerial",
+      "leido": false
+    }
+  ]
+}

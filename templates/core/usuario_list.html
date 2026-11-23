@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% block title %}Gestión de Usuarios y Roles RBAC{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bolder mb-0"><i class="bi bi-shield-lock-fill text-danger me-2"></i>Gestión de Usuarios y Matriz RBAC</h4>
+        <p class="text-muted small mb-0 mt-1">
+            Control de Acceso Basado en Roles (RF-01, RF-02, RNF-01 y RNF-02) con contraseñas cifradas bajo Argon2id
+        </p>
+    </div>
+    {% if user.rol == 'admin' %}
+    <button type="button" class="btn btn-cesfam" data-bs-toggle="modal" data-bs-target="#modalNuevoUsuario">
+        <i class="bi bi-person-plus-fill me-1"></i>Crear Cuenta de Usuario
+    </button>
+    {% endif %}
+</div>
+
+<!-- Tabla de Usuarios Registrados -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people-fill me-2 text-danger"></i>Dotación de Operadores Habilitados en PostgreSQL</span>
+        <span class="badge bg-dark">{{ usuarios|length }} cuentas activas</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-cesfam mb-0">
+                <thead>
+                    <tr>
+                        <th>Usuario</th>
+                        <th>Nombre Completo</th>
+                        <th>RUT (Módulo 11)</th>
+                        <th>Teléfono</th>
+                        <th>Correo Institucional</th>
+                        <th>Rol Sanitario (RBAC)</th>
+                        <th>2FA / PIN</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in usuarios %}
+                    <tr class="{% if not u.is_active %}table-secondary text-muted{% endif %}">
+                        <td><code class="fw-bold">{{ u.username }}</code></td>
+                        <td><strong>{{ u.get_full_name }}</strong></td>
+                        <td class="font-monospace">{{ u.rut }}</td>
+                        <td>{{ u.telefono|default:"+56984120091" }}</td>
+                        <td>{{ u.email|default:"—" }}</td>
+                        <td>
+                            <span class="badge {% if u.rol == 'admin' %}bg-dark{% elif u.rol == 'quimico' %}bg-danger{% elif u.rol == 'clinico' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                {{ u.get_rol_display }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if u.pin_seguridad or u.totp_secret %}
+                            <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>2FA</span>
+                            {% else %}
+                            <span class="badge bg-light text-muted border">Estándar</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.is_active %}
+                            <span class="badge bg-success">Activo</span>
+                            {% else %}
+                            <span class="badge bg-danger">Inactivo</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                <a href="{% url 'core:simular_rol' u.rol %}" class="btn btn-sm btn-outline-dark" title="Simular este rol">
+                                    <i class="bi bi-box-arrow-in-right"></i>
+                                </a>
+                                {% if user.rol == 'admin' and u.pk != user.pk %}
+                                <form method="post" class="m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="accion_post" value="toggle_estado">
+                                    <input type="hidden" name="usuario_id" value="{{ u.pk }}">
+                                    <button type="submit" class="btn btn-sm {% if u.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" title="Activar/Desactivar usuario (RF-01)">
+                                        <i class="bi {% if u.is_active %}bi-person-slash{% else %}bi-person-check{% endif %}"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Crear Nuevo Usuario -->
+{% if user.rol == 'admin' %}
+<div class="modal fade" id="modalNuevoUsuario" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>Registrar Nuevo Operador en CESFAM</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Nombre de Usuario (Login)</label>
+                            <input type="text" name="username" class="form-control" required placeholder="ej: qf_valenzuela">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">RUT Chileno (Módulo 11)</label>
+                            <input type="text" name="rut" class="form-control" data-validate-rut required placeholder="12.345.678-5">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Rol Sanitario (RBAC)</label>
+                            <select name="rol" class="form-select" required>
+                                {% for val, label in roles %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Nombres</label>
+                            <input type="text" name="first_name" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Apellidos</label>
+                            <input type="text" name="last_name" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Correo Institucional</label>
+                            <input type="email" name="email" class="form-control" placeholder="usuario@cesfam.cl">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Teléfono de Contacto</label>
+                            <input type="text" name="telefono" class="form-control" placeholder="+56912345678" required>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Contraseña Inicial</label>
+                            <input type="password" name="password" class="form-control" value="Inacap2026!" required>
+                            <small class="text-muted">Se almacenará cifrada con hash unidireccional Argon2id.</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Crear Usuario RBAC</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

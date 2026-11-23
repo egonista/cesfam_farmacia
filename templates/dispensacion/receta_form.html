@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Nueva Receta{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h4><i class="bi bi-file-earmark-plus me-2"></i>Registrar Nueva Receta</h4>
+    <div class="card mt-3"><div class="card-body">
+        <form method="post">{% csrf_token %}
+            <div class="row g-3">
+                <div class="col-md-3"><label class="form-label">N° Receta</label><input type="text" name="numero_receta" class="form-control" required></div>
+                <div class="col-md-3"><label class="form-label">Paciente</label><select name="paciente" class="form-select" required>{% for p in pacientes %}<option value="{{ p.pk }}">{{ p.rut }} - {{ p.nombre_completo }}</option>{% endfor %}</select></div>
+                <div class="col-md-3"><label class="form-label">Médico Prescriptor</label><select name="medico" class="form-select" required>{% for m in medicos %}<option value="{{ m.pk }}">{{ m }}</option>{% endfor %}</select></div>
+                <div class="col-md-3"><label class="form-label">Tipo de Receta</label><select name="tipo" class="form-select">{% for val, label in tipos_receta %}<option value="{{ val }}">{{ label }}</option>{% endfor %}</select></div>
+                <div class="col-md-3"><label class="form-label">Fecha Emisión</label><input type="date" name="fecha_emision" class="form-control" required></div>
+                <div class="col-md-3"><label class="form-label">Fecha Vencimiento</label><input type="date" name="fecha_vencimiento" class="form-control" required></div>
+                <div class="col-md-6"><label class="form-label">Diagnóstico</label><textarea name="diagnostico" class="form-control" rows="2" required></textarea></div>
+            </div>
+            <hr>
+            <h5>Medicamentos Prescritos</h5>
+            <div id="medicamentos-container">
+                <div class="row g-2 mb-2 medicamento-row">
+                    <div class="col-md-4"><select name="medicamento_id" class="form-select"><option value="">Seleccione...</option>{% for m in medicamentos %}<option value="{{ m.pk }}">{{ m.nombre_generico }} {{ m.concentracion }}</option>{% endfor %}</select></div>
+                    <div class="col-md-2"><input type="number" name="cantidad" class="form-control" placeholder="Cantidad" min="1"></div>
+                    <div class="col-md-3"><input type="text" name="posologia" class="form-control" placeholder="Posología"></div>
+                    <div class="col-md-2"><input type="number" name="dias_tratamiento" class="form-control" placeholder="Días" value="30"></div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="agregarMedicamento()"><i class="bi bi-plus me-1"></i>Agregar medicamento</button>
+            <div class="col-12"><label class="form-label">Observaciones</label><textarea name="observaciones" class="form-control" rows="2"></textarea></div>
+            <div class="mt-4"><button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Guardar Receta</button> <a href="{% url 'dispensacion:receta_list' %}" class="btn btn-outline-secondary ms-2">Cancelar</a></div>
+        </form>
+    </div></div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function agregarMedicamento() {
+    const container = document.getElementById('medicamentos-container');
+    const rows = container.querySelectorAll('.medicamento-row');
+    const clone = rows[0].cloneNode(true);
+    clone.querySelectorAll('input, select').forEach(el => el.value = '');
+    container.appendChild(clone);
+}
+</script>
+{% endblock %}

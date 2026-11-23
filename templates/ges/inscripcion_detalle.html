@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}Detalle GES - {{ inscripcion.patologia.nombre }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1"><i class="bi bi-shield-check text-primary me-2"></i>Inscripción GES: {{ inscripcion.patologia.nombre }}</h4>
+            <p class="text-muted small mb-0">Control de cuotas autorizadas versus entregadas para el paciente</p>
+        </div>
+        <a href="{% url 'ges:inscripcion_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Volver a la lista
+        </a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-4">
+            <div class="card p-4 shadow-sm border-0">
+                <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Información del Paciente</h6>
+                <p class="mb-2"><strong>Paciente:</strong> {{ inscripcion.paciente.nombre_completo }}</p>
+                <p class="mb-2"><strong>RUT:</strong> <code>{{ inscripcion.paciente.rut }}</code></p>
+                <p class="mb-2"><strong>Previsión:</strong> <span class="badge bg-primary">{{ inscripcion.paciente.get_prevision_display }}</span></p>
+                <p class="mb-2"><strong>Condición:</strong> {% if inscripcion.paciente.cronico %}<span class="badge bg-warning text-dark">Paciente Crónico</span>{% else %}<span class="badge bg-secondary">Estándar</span>{% endif %}</p>
+                
+                <h6 class="fw-bold text-dark border-bottom pb-2 mt-4 mb-3">Vigencia del Tratamiento</h6>
+                <p class="mb-2"><strong>Inscripción:</strong> {{ inscripcion.fecha_inscripcion|date:"d/m/Y" }}</p>
+                <p class="mb-2"><strong>Inicio Período:</strong> {{ inscripcion.fecha_inicio_periodo|date:"d/m/Y" }}</p>
+                <p class="mb-2"><strong>Fin Período:</strong> {{ inscripcion.fecha_fin_periodo|date:"d/m/Y" }}</p>
+                <p class="mb-0"><strong>Estado:</strong> {% if inscripcion.activa %}<span class="badge bg-success">Activa</span>{% else %}<span class="badge bg-danger">Inactiva</span>{% endif %}</p>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-white py-3">
+                    <h6 class="mb-0 fw-bold"><i class="bi bi-basket2 text-primary me-2"></i>Canasta Farmacológica Oficial y Saldo de Cuotas</h6>
+                </div>
+                <div class="card-body">
+                    {% for item in canastas_info %}
+                    <div class="border rounded p-3 mb-3 {% if not item.tiene_saldo %}bg-light border-danger{% endif %}">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <h6 class="fw-bold mb-1">{{ item.canasta.medicamento.nombre_generico }} {{ item.canasta.medicamento.concentracion }}</h6>
+                                <span class="badge bg-secondary">{{ item.canasta.medicamento.forma_farmaceutica }}</span>
+                                <span class="text-muted small ms-2">Dosis por cuota: <strong>{{ item.canasta.cantidad_por_cuota }}</strong> {{ item.canasta.medicamento.get_unidad_medida_display }}</span>
+                            </div>
+                            <div>
+                                {% if item.tiene_saldo %}
+                                <span class="badge bg-success fs-6"><i class="bi bi-check-circle me-1"></i>Con Saldo</span>
+                                {% else %}
+                                <span class="badge bg-danger fs-6"><i class="bi bi-x-circle me-1"></i>Cuotas Agotadas</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="row align-items-center mt-3">
+                            <div class="col-md-8">
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar {% if not item.tiene_saldo %}bg-danger{% else %}bg-primary{% endif %}" role="progressbar" 
+                                         style="width: {% widthratio item.cuotas_usadas item.canasta.cuotas_autorizadas 100 %}%;"
+                                         aria-valuenow="{{ item.cuotas_usadas }}" aria-valuemin="0" aria-valuemax="{{ item.canasta.cuotas_autorizadas }}">
+                                        {{ item.cuotas_usadas }} / {{ item.canasta.cuotas_autorizadas }} cuotas entregadas
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4 text-md-end mt-2 mt-md-0">
+                                <span class="small text-muted">Disponibles:</span>
+                                <strong class="fs-5 {% if item.cuotas_restantes > 0 %}text-success{% else %}text-danger{% endif %}">{{ item.cuotas_restantes }}</strong>
+                                <span class="small text-muted">/ {{ item.canasta.cuotas_autorizadas }}</span>
+                            </div>
+                        </div>
+
+                        {% if not item.tiene_saldo %}
+                        <div class="alert alert-danger py-2 mt-3 mb-0 small">
+                            <i class="bi bi-shield-slash-fill me-1"></i>
+                            <strong>Bloqueo de seguridad:</strong> El paciente consumió el 100% de las cuotas autorizadas para este ciclo anual. Para habilitar más entregas se requiere reevaluación clínica por médico especialista.
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

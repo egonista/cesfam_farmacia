@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Pacientes{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4><i class="bi bi-people me-2"></i>Pacientes</h4>
+        <a href="{% url 'core:paciente_crear' %}" class="btn btn-cesfam"><i class="bi bi-plus-circle me-1"></i>Nuevo Paciente</a>
+    </div>
+    <div class="card">
+        <div class="card-body">
+            <form method="get" class="row g-2 mb-3">
+                <div class="col-md-8">
+                    <input type="text" name="q" class="form-control" placeholder="Buscar por RUT, nombre o apellido..." value="{{ query }}">
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-search me-1"></i>Buscar</button>
+                </div>
+            </form>
+            <div class="table-responsive">
+                <table class="table table-cesfam">
+                    <thead><tr><th>RUT</th><th>Apellido Paterno</th><th>Apellido Materno</th><th>Nombres</th><th>Previsión</th><th>Crónico</th><th>Acciones</th></tr></thead>
+                    <tbody>
+                    {% for p in pacientes %}
+                    <tr>
+                        <td><strong>{{ p.rut }}</strong></td>
+                        <td>{{ p.apellido_paterno }}</td>
+                        <td>{{ p.apellido_materno }}</td>
+                        <td>{{ p.nombres }}</td>
+                        <td><span class="badge bg-primary">{{ p.get_prevision_display }}</span></td>
+                        <td>{% if p.cronico %}<span class="badge bg-warning text-dark">Crónico</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
+                        <td><a href="{% url 'core:paciente_detalle' p.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center text-muted">No se encontraron pacientes.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}Alertas de Vencimiento y Quiebre de Stock{% endblock %}
+{% block content %}
+<div class="container-fluid py-2">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>Semáforo de Vencimientos FEFO & Quiebres de Stock</h4>
+            <p class="text-muted small mb-0 mt-1">Vigilancia proactiva a 30, 60 y 90 días (RF-07) y disparo de órdenes de abastecimiento a CENABAST ante quiebre (RF-06)</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'farmacia:generar_orden_automatica' %}" class="btn btn-warning text-dark fw-bold btn-sm">
+                <i class="bi bi-lightning-charge-fill me-1"></i>Generar Orden Automática CENABAST por Quiebres
+            </a>
+            <a href="{% url 'farmacia:orden_list' %}" class="btn btn-cesfam btn-sm">
+                <i class="bi bi-truck me-1"></i>Ver Órdenes CENABAST
+            </a>
+        </div>
+    </div>
+    {% if vencidos %}
+    <div class="card border-danger mb-3"><div class="card-header bg-danger text-white"><i class="bi bi-x-octagon me-2"></i>Lotes VENCIDOS ({{ vencidos|length }})</div><div class="card-body">
+        <div class="table-responsive"><table class="table table-sm table-danger"><thead><tr><th>Lote</th><th>Medicamento</th><th>Ubicación</th><th>Cantidad</th><th>F. Vencimiento</th></tr></thead><tbody>{% for l in vencidos %}<tr><td>{{ l.numero_lote }}</td><td>{{ l.medicamento.nombre_generico }}</td><td>{{ l.ubicacion.nombre }}</td><td>{{ l.cantidad_actual }}</td><td>{{ l.fecha_vencimiento|date:"d/m/Y" }}</td></tr>{% endfor %}</tbody></table></div>
+    </div></div>{% endif %}
+    {% if alertas_30 %}
+    <div class="card border-warning mb-3"><div class="card-header bg-warning text-dark"><i class="bi bi-clock me-2"></i>Vencen en 30 días ({{ alertas_30|length }})</div><div class="card-body">
+        <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Lote</th><th>Medicamento</th><th>Ubicación</th><th>Cantidad</th><th>Vence</th><th>Días</th></tr></thead><tbody>{% for l in alertas_30 %}<tr class="table-warning"><td>{{ l.numero_lote }}</td><td>{{ l.medicamento.nombre_generico }}</td><td>{{ l.ubicacion.nombre }}</td><td>{{ l.cantidad_actual }}</td><td>{{ l.fecha_vencimiento|date:"d/m/Y" }}</td><td><strong>{{ l.dias_para_vencer }}</strong></td></tr>{% endfor %}</tbody></table></div>
+    </div></div>{% endif %}
+    {% if alertas_60 %}
+    <div class="card mb-3"><div class="card-header"><i class="bi bi-clock me-2"></i>Vencen en 60 días ({{ alertas_60|length }})</div><div class="card-body">
+        <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Lote</th><th>Medicamento</th><th>Ubicación</th><th>Cantidad</th><th>Vence</th><th>Días</th></tr></thead><tbody>{% for l in alertas_60 %}<tr><td>{{ l.numero_lote }}</td><td>{{ l.medicamento.nombre_generico }}</td><td>{{ l.ubicacion.nombre }}</td><td>{{ l.cantidad_actual }}</td><td>{{ l.fecha_vencimiento|date:"d/m/Y" }}</td><td>{{ l.dias_para_vencer }}</td></tr>{% endfor %}</tbody></table></div>
+    </div></div>{% endif %}
+    {% if alertas_90 %}
+    <div class="card mb-3"><div class="card-header"><i class="bi bi-clock me-2"></i>Vencen en 90 días ({{ alertas_90|length }})</div><div class="card-body">
+        <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Lote</th><th>Medicamento</th><th>Ubicación</th><th>Cantidad</th><th>Vence</th><th>Días</th></tr></thead><tbody>{% for l in alertas_90 %}<tr><td>{{ l.numero_lote }}</td><td>{{ l.medicamento.nombre_generico }}</td><td>{{ l.ubicacion.nombre }}</td><td>{{ l.cantidad_actual }}</td><td>{{ l.fecha_vencimiento|date:"d/m/Y" }}</td><td>{{ l.dias_para_vencer }}</td></tr>{% endfor %}</tbody></table></div>
+    </div></div>{% endif %}
+    {% if medicamentos_quiebre %}
+    <div class="card border-danger">
+        <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-exclamation-diamond me-2"></i>Medicamentos en Quiebre de Stock ({{ medicamentos_quiebre|length }})</span>
+            <a href="{% url 'farmacia:generar_orden_automatica' %}" class="btn btn-sm btn-light text-danger fw-bold">
+                <i class="bi bi-magic me-1"></i>Solicitar Reposición Automática a CENABAST
+            </a>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>Código</th><th>Medicamento</th><th>Stock Actual</th><th>Stock Mín.</th><th>Déficit a Pedir</th><th>Acción</th></tr></thead>
+                    <tbody>
+                    {% for m in medicamentos_quiebre %}
+                    <tr class="table-danger">
+                        <td><code>{{ m.codigo }}</code></td>
+                        <td><strong>{{ m.nombre_generico }}</strong> {{ m.concentracion }}</td>
+                        <td class="fw-bold text-danger">{{ m.stock_total }}</td>
+                        <td>{{ m.stock_minimo }}</td>
+                        <td class="fw-semibold">Bajo umbral crítico</td>
+                        <td>
+                            <a href="{% url 'farmacia:generar_orden_automatica' %}" class="btn btn-xs btn-danger py-0 px-2 small">
+                                <i class="bi bi-truck me-1"></i>Pedir a CENABAST
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

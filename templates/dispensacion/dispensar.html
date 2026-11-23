@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Dispensar{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <h4><i class="bi bi-hand-index me-2"></i>Dispensar Receta</h4>
+    <p class="text-muted">Seleccione una receta pendiente para iniciar la dispensación.</p>
+    <div class="card"><div class="card-body">
+        <div class="table-responsive"><table class="table table-cesfam"><thead><tr><th>N° Receta</th><th>Paciente</th><th>RUT</th><th>Médico</th><th>Fecha</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{% for r in recetas_pendientes %}<tr><td><strong>{{ r.numero_receta }}</strong></td><td>{{ r.paciente.nombre_completo }}</td><td>{{ r.paciente.rut }}</td><td>{{ r.medico }}</td><td>{{ r.fecha_emision|date:"d/m/Y" }}</td><td><span class="badge bg-warning text-dark">{{ r.get_estado_display }}</span></td><td><a href="{% url 'dispensacion:dispensar_receta' r.pk %}" class="btn btn-sm btn-dispensar"><i class="bi bi-hand-index me-1"></i>Dispensar</a></td></tr>{% empty %}<tr><td colspan="7" class="text-center text-muted">No hay recetas pendientes de dispensación.</td></tr>{% endfor %}</tbody></table></div>
+    </div></div>
+</div>
+{% endblock %}

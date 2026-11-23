@@ -1,0 +1,67 @@
+"""
+Middleware de seguridad y auditoría para CESFAM Farmacia.
+"""
+import json
+import logging
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+
+class SecurityHeadersMiddleware:
+    """Middleware que añade cabeceras de seguridad HTTP (CSP, X-Content-Type-Options, etc.)."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response['X-Content-Type-Options'] = 'nosniff'
+        response['X-Frame-Options'] = 'DENY'
+        response['X-XSS-Protection'] = '1; mode=block'
+        response['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self';"
+        )
+        return response
+
+
+class AuditMiddleware:
+    """Middleware que registra acciones de escritura (POST/PUT/DELETE) en la auditoría de PostgreSQL."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        # Solo auditar métodos de escritura en vistas relevantes
+        if request.method in ('POST', 'PUT', 'DELETE') and request.user.is_authenticated:
+            try:
+                from core.models import AuditoriaInmutable
+                entidad = request.path.strip('/').split('/')[0] if request.path.strip('/') else 'dashboard'
+                AuditoriaInmutable.objects.create(
+                    ip_origen=self._get_client_ip(request),
+                    usuario=request.user,
+                    usuario_username=request.user.username,
+                    rol=getattr(request.user, 'rol', 'desconocido'),
+                    accion=f'{request.method} {request.path}',
+                    entidad_afectada=entidad,
+                    valores_anteriores={},
+                    valores_nuevos={'ruta': request.path, 'metodo': request.method},
+                )
+            except Exception as e:
+                logger.warning(f'Error al registrar auditoría middleware: {e}')
+        return response
+
+    @staticmethod
+    def _get_client_ip(request):
+        """Obtiene la IP del cliente desde el request."""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR', '127.0.0.1')

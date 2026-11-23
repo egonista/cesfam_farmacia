@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Carros Clínicos{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1"><i class="bi bi-cart3 text-primary me-2"></i>Carros Clínicos Asistenciales</h4>
+            <p class="text-muted small mb-0">Gestión de dotación para emergencias (Carro de Paro) y administración intrahospitalaria (Carro Unidosis)</p>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        {% for carro in carros %}
+        <div class="col-md-6 col-xl-4">
+            <div class="card h-100 shadow-sm border-0 border-top border-4 {% if carro.estado == 'completo' %}border-success{% elif carro.estado == 'incompleto' %}border-danger{% else %}border-warning{% endif %}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <span class="badge {% if carro.tipo == 'paro' %}bg-danger{% else %}bg-primary{% endif %} mb-1">
+                                {{ carro.get_tipo_display }}
+                            </span>
+                            <h5 class="fw-bold mb-0">{{ carro.nombre }}</h5>
+                        </div>
+                        <span class="badge {% if carro.estado == 'completo' %}bg-success{% elif carro.estado == 'incompleto' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                            {{ carro.get_estado_display }}
+                        </span>
+                    </div>
+
+                    <p class="text-muted small mb-3">
+                        <i class="bi bi-geo-alt-fill text-danger me-1"></i><strong>Ubicación:</strong> {{ carro.ubicacion_fisica }}
+                    </p>
+
+                    <div class="bg-light rounded p-2 mb-3">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>Precinto de Seguridad:</span>
+                            <strong class="text-dark">{{ carro.numero_precinto|default:"Sin precinto" }}</strong>
+                        </div>
+                        <div class="d-flex justify-content-between small">
+                            <span>Último precintado:</span>
+                            <span class="text-muted">{{ carro.fecha_ultimo_precinto|date:"d/m/Y H:i"|default:"—" }}</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>Ítems de Plantilla Canónica:</span>
+                            <span>{{ carro.plantilla_items.count }} ítems</span>
+                        </div>
+                    </div>
+
+                    <div class="d-grid">
+                        <a href="{% url 'carros_clinicos:carro_detalle' carro.pk %}" class="btn btn-outline-primary">
+                            <i class="bi bi-eye-fill me-1"></i>Ver Dotación y Reposición
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12 text-center py-5 text-muted">
+            <i class="bi bi-cart-x fs-1 d-block mb-2"></i>
+            No se han configurado carros clínicos en el sistema.
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

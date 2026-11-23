@@ -1,0 +1,317 @@
+{% extends 'base.html' %}
+{% block title %}Abastecimiento & Pedidos CENABAST{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+    <div>
+        <div class="d-flex align-items-center gap-2">
+            <h4 class="fw-bolder mb-0"><i class="bi bi-truck text-danger me-2"></i>Órdenes de Abastecimiento & Remesas CENABAST</h4>
+            <span class="badge bg-dark">RF-04 / RF-06</span>
+        </div>
+        <p class="text-muted small mb-0 mt-1">
+            Confección manual de órdenes multi-ítem (existentes o fármacos nuevos), propuestas automáticas editables y recepción en Bodega Central
+        </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-cesfam btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevaOrdenManual">
+            <i class="bi bi-file-earmark-plus-fill me-1"></i>Confeccionar Orden Manual (Catálogo o Nuevo Fármaco)
+        </button>
+        <a href="{% url 'farmacia:generar_orden_automatica' %}" class="btn btn-outline-dark fw-bold btn-sm">
+            <i class="bi bi-lightning-charge-fill text-warning me-1"></i>Sugerir Borrador Automático por Quiebres
+        </a>
+    </div>
+</div>
+
+<!-- Alerta Proactiva si existen medicamentos en Quiebre de Stock -->
+{% if medicamentos_quiebre %}
+<div class="alert alert-danger border-danger shadow-sm d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div>
+        <h6 class="fw-bolder mb-1"><i class="bi bi-exclamation-octagon-fill me-2"></i>Alerta de Quiebre de Stock Detectado ({{ medicamentos_quiebre|length }} fármaco(s) bajo mínimo)</h6>
+        <div class="small">
+            Fármacos afectados:
+            {% for m in medicamentos_quiebre %}
+            <span class="badge bg-danger ms-1">{{ m.nombre_generico }} (Stock: {{ m.stock_total }} / Mín: {{ m.stock_minimo }})</span>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-light text-danger fw-bold btn-sm border-danger" data-bs-toggle="modal" data-bs-target="#modalNuevaOrdenManual">
+            <i class="bi bi-pencil-square me-1"></i>Armar Orden Manualmente
+        </button>
+        <a href="{% url 'farmacia:generar_orden_automatica' %}" class="btn btn-danger fw-bold btn-sm shadow-sm">
+            <i class="bi bi-magic me-1"></i>Crear Propuesta Editable por Quiebre
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Tabla de Órdenes de Abastecimiento -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clipboard2-data text-danger me-2"></i>Registro de Órdenes de Pedido y Recepción de Remesas</span>
+        <span class="badge bg-dark">{{ ordenes|length }} órdenes registradas</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-cesfam mb-0">
+                <thead>
+                    <tr>
+                        <th>N° Orden / Folio</th>
+                        <th>Fecha Emisión</th>
+                        <th>Modalidad</th>
+                        <th>Confección</th>
+                        <th>Detalle de Medicamentos (Unidades)</th>
+                        <th>Total Unid.</th>
+                        <th>Guía Despacho</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in ordenes %}
+                    <tr>
+                        <td><code class="fw-bold">{{ o.numero_orden }}</code></td>
+                        <td class="small">{{ o.fecha_emision|date:"d/m/Y H:i" }}</td>
+                        <td><span class="small fw-semibold">{{ o.get_tipo_display }}</span></td>
+                        <td>
+                            {% if o.generada_automaticamente %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-lightning-fill me-1"></i>Sugerencia Editable</span>
+                            {% else %}
+                            <span class="badge bg-dark"><i class="bi bi-person-fill me-1"></i>Manual ({{ o.solicitante.username }})</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">
+                            {% for d in o.detalles.all %}
+                            <div>
+                                <code>{{ d.medicamento.codigo }}</code>
+                                <strong>{{ d.medicamento.nombre_generico }}</strong> {{ d.medicamento.concentracion }}
+                                <span class="badge bg-light text-dark border ms-1">{{ d.cantidad_solicitada }} unid.</span>
+                            </div>
+                            {% empty %}
+                            <span class="text-danger small fst-italic">Sin ítems (En edición)</span>
+                            {% endfor %}
+                        </td>
+                        <td class="fw-bolder">{{ o.total_unidades_solicitadas }}</td>
+                        <td>
+                            {% if o.guia_despacho %}
+                            <code class="text-success fw-bold">{{ o.guia_despacho }}</code>
+                            {% else %}
+                            <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if o.estado == 'pendiente' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-pencil-square me-1"></i>En Edición / Pendiente Q.F.</span>
+                            {% elif o.estado == 'enviada' %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-send-check me-1"></i>Visada / Enviada a CENABAST</span>
+                            {% elif o.estado == 'recepcionada' %}
+                            <span class="badge bg-success"><i class="bi bi-check2-all me-1"></i>Recepcionada en Bodega</span>
+                            {% else %}
+                            <span class="badge bg-danger">Anulada</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'farmacia:orden_detalle' o.pk %}" class="btn btn-sm {% if o.estado == 'pendiente' %}btn-cesfam{% else %}btn-outline-dark{% endif %}">
+                                {% if o.estado == 'pendiente' %}
+                                <i class="bi bi-pencil-square me-1"></i>Revisar / Editar
+                                {% else %}
+                                <i class="bi bi-eye-fill me-1"></i>Ver / Gestionar
+                                {% endif %}
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            No hay órdenes de abastecimiento registradas.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- =====================================================================
+     MODAL CONFECCIONAR ORDEN MANUAL (MULTI-ÍTEM + NUEVOS MEDICAMENTOS)
+     ===================================================================== -->
+<div class="modal fade" id="modalNuevaOrdenManual" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-plus-fill me-2"></i>Confeccionar Orden de Trabajo / Abastecimiento Manual</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <!-- 1. Datos de Cabecera -->
+                    <div class="row g-3 mb-4 pb-3 border-bottom">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Modalidad de Abastecimiento</label>
+                            <select name="tipo" class="form-select">
+                                <option value="cenabast">Remesa Ministerial CENABAST</option>
+                                <option value="urgencia">Pedido Urgente por Quiebre de Stock</option>
+                                <option value="convenio">Adquisición Directa / Servicio de Salud</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Organismo / Proveedor Destino</label>
+                            <input type="text" name="proveedor" class="form-control" value="CENABAST - Central de Abastecimiento del S.N.S.S." required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Justificación / Observaciones</label>
+                            <input type="text" name="observaciones" class="form-control" placeholder="Ej: Abastecimiento mensual o incorporación de nuevo fármaco...">
+                        </div>
+                    </div>
+
+                    <!-- 2. Selección de Medicamentos ya existentes en el Catálogo (Multi-fila) -->
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="fw-bolder mb-0 text-dark"><i class="bi bi-list-check text-danger me-2"></i>A. Seleccionar Medicamentos del Catálogo Actual</h6>
+                        <button type="button" class="btn btn-sm btn-outline-dark" onclick="agregarFilaOrden()">
+                            <i class="bi bi-plus-circle me-1"></i>Agregar otra línea de medicamento
+                        </button>
+                    </div>
+                    <div id="contenedor-filas-orden" class="mb-4">
+                        <div class="row g-2 align-items-center mb-2 fila-orden-item">
+                            <div class="col-md-8">
+                                <select name="medicamento_id" class="form-select">
+                                    <option value="">-- Seleccione un medicamento del catálogo (opcional si ingresará uno nuevo abajo) --</option>
+                                    {% for m in medicamentos %}
+                                    <option value="{{ m.pk }}">
+                                        [{{ m.codigo }}] {{ m.nombre_generico }} {{ m.concentracion }} ({{ m.forma_farmaceutica }}) — Stock actual: {{ m.stock_total }} / Mín: {{ m.stock_minimo }}
+                                        {% if m.en_quiebre %}⚠️ EN QUIEBRE{% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="input-group">
+                                    <span class="input-group-text small">Cantidad</span>
+                                    <input type="number" name="cantidad_solicitada" class="form-control" value="300" min="1">
+                                </div>
+                            </div>
+                            <div class="col-md-1 text-end">
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="eliminarFilaOrden(this)" title="Quitar fila">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Incorporar un NUEVO medicamento que NO está en el catálogo aún -->
+                    <div class="p-3 rounded border border-primary bg-primary bg-opacity-10">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="chkIncluirNuevoMed" name="incluir_nuevo_med" onchange="toggleNuevoMed(this)">
+                            <label class="form-check-label fw-bolder text-primary" for="chkIncluirNuevoMed">
+                                <i class="bi bi-plus-square-fill me-1"></i>B. ¿Necesitas pedir un NUEVO medicamento o insumo que aún NO está en el catálogo del CESFAM?
+                            </label>
+                        </div>
+                        <p class="text-muted small mb-0">
+                            Activa esta opción para registrar el nuevo producto en el arsenal del CESFAM e incluirlo inmediatamente en esta orden de pedido.
+                        </p>
+
+                        <div id="divCamposNuevoMed" style="display: none;" class="mt-3 pt-3 border-top border-primary border-opacity-25">
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Código Nuevo Producto</label>
+                                    <input type="text" name="nuevo_codigo" class="form-control form-control-sm" placeholder="Ej: MED-ATB-010">
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label small fw-bold">Nombre Genérico (DCI) *</label>
+                                    <input type="text" name="nuevo_nombre_generico" id="inputNuevoNombre" class="form-control form-control-sm" placeholder="Ej: Amoxicilina + Ácido Clavulánico">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Nombre Comercial / Ref.</label>
+                                    <input type="text" name="nuevo_nombre_comercial" class="form-control form-control-sm" placeholder="Ej: Augmentin / CENABAST">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Concentración *</label>
+                                    <input type="text" name="nuevo_concentracion" class="form-control form-control-sm" placeholder="Ej: 500mg / 125mg">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Forma Farmacéutica</label>
+                                    <input type="text" name="nuevo_forma_farmaceutica" class="form-control form-control-sm" value="Comprimido recubierto">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Unidad de Medida</label>
+                                    <select name="nuevo_unidad_medida" class="form-select form-select-sm">
+                                        <option value="comp">Comprimido</option>
+                                        <option value="cap">Cápsula</option>
+                                        <option value="amp">Ampolla</option>
+                                        <option value="frasco">Frasco</option>
+                                        <option value="inhalador">Inhalador</option>
+                                        <option value="unidad">Unidad / Insumo</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Categoría Terapéutica</label>
+                                    <select name="nuevo_categoria" class="form-select form-select-sm">
+                                        {% for c in categorias %}
+                                        <option value="{{ c.pk }}">{{ c.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Stock Mínimo Alerta</label>
+                                    <input type="number" name="nuevo_stock_minimo" class="form-control form-control-sm" value="100" min="1">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold">Stock Máximo</label>
+                                    <input type="number" name="nuevo_stock_maximo" class="form-control form-control-sm" value="1500" min="1">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-bold text-primary">Cantidad a Pedir en Orden *</label>
+                                    <input type="number" name="nuevo_cantidad_solicitada" class="form-control form-control-sm border-primary fw-bold" value="500" min="1">
+                                </div>
+                                <div class="col-md-3 d-flex align-items-end">
+                                    <div class="form-check mb-1">
+                                        <input type="checkbox" name="nuevo_es_controlado" class="form-check-input" id="chkNuevoCtrl">
+                                        <label class="form-check-label small fw-bold text-danger" for="chkNuevoCtrl">Controlado ISP (D.S. 404/405)</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam">
+                        <i class="bi bi-check2-circle me-1"></i>Crear Orden y Pasar a Revisión / Edición
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function agregarFilaOrden() {
+    const cont = document.getElementById('contenedor-filas-orden');
+    const filas = cont.querySelectorAll('.fila-orden-item');
+    const clon = filas[0].cloneNode(true);
+    clon.querySelector('select').value = '';
+    clon.querySelector('input[type="number"]').value = '200';
+    cont.appendChild(clon);
+}
+
+function eliminarFilaOrden(btn) {
+    const cont = document.getElementById('contenedor-filas-orden');
+    const filas = cont.querySelectorAll('.fila-orden-item');
+    if (filas.length > 1) {
+        btn.closest('.fila-orden-item').remove();
+    } else {
+        filas[0].querySelector('select').value = '';
+    }
+}
+
+function toggleNuevoMed(chk) {
+    const div = document.getElementById('divCamposNuevoMed');
+    const inp = document.getElementById('inputNuevoNombre');
+    div.style.display = chk.checked ? 'block' : 'none';
+    if (inp) inp.required = chk.checked;
+}
+</script>
+{% endblock %}

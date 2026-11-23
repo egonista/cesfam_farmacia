@@ -1,0 +1,151 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Comprobante de Dispensación #{{ dispensacion.id }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <div>
+        <h4 class="fw-bolder mb-0"><i class="bi bi-file-earmark-check-fill text-success me-2"></i>Comprobante Oficial de Dispensación Asistencial #{{ dispensacion.id }}</h4>
+        <p class="text-muted small mb-0">Documento con trazabilidad FEFO, gratuidad $0 copago e individualización del receptor físico (HU-05 / RF-11)</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button type="button" onclick="window.print()" class="btn btn-cesfam">
+            <i class="bi bi-printer-fill me-1"></i>Imprimir Orden / Comprobante Oficial
+        </button>
+        <a href="{% url 'dispensacion:historial' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Volver al Historial
+        </a>
+    </div>
+</div>
+
+<!-- PLANTILLA IMPRIMIBLE OFICIAL DE COMPROBANTE DE ENTREGA -->
+<div class="card p-4 shadow-sm border-2" style="border-color: #18181B;">
+    <!-- Cabecera del Comprobante -->
+    <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4" style="border-color: #C8102E !important; border-bottom-width: 3px !important;">
+        <div class="d-flex align-items-center gap-3">
+            <img src="{% static 'img/inacap_logo.png' %}" alt="INACAP" style="height: 44px; object-fit: contain;">
+            <div>
+                <h5 class="fw-bolder mb-0 text-dark">FARMACIA ASISTENCIAL CESFAM - RED APS</h5>
+                <small class="text-muted fw-semibold">Comprobante Oficial de Entrega de Fármacos • Laboratorio de Simulación INACAP</small>
+            </div>
+        </div>
+        <div class="text-end">
+            <span class="badge bg-dark fs-6">FOLIO DISP-#{{ dispensacion.id|stringformat:"05d" }}</span>
+            <div class="small text-muted mt-1">Fecha: <strong>{{ dispensacion.fecha|date:"d/m/Y H:i" }}</strong></div>
+            <span class="badge bg-success mt-1">VALOR COPAGO: $0 (100% GRATUITO APS)</span>
+        </div>
+    </div>
+
+    <!-- Individualización del Paciente Titular y del Receptor Físico (HU-05) -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="p-3 rounded border bg-light h-100">
+                <h6 class="fw-bolder text-uppercase small text-danger mb-2">
+                    <i class="bi bi-person-vcard me-1"></i>1. Individualización del Paciente Titular Beneficiario
+                </h6>
+                <div class="small">
+                    <div class="mb-1"><strong>Nombre Completo:</strong> {{ dispensacion.receta.paciente.nombre_completo }}</div>
+                    <div class="mb-1"><strong>RUT (Módulo 11):</strong> <code class="fw-bold">{{ dispensacion.receta.paciente.rut }}</code></div>
+                    <div class="mb-1"><strong>Previsión / Tramo:</strong> {{ dispensacion.receta.paciente.get_prevision_display }} {% if dispensacion.receta.paciente.cronico %}(Paciente Crónico){% endif %}</div>
+                    <div class="mb-1"><strong>Receta Médica Asociada:</strong> <code>{{ dispensacion.receta.numero_receta }}</code> ({{ dispensacion.receta.get_tipo_display }})</div>
+                    <div class="mb-0"><strong>Médico Prescriptor:</strong> {{ dispensacion.receta.medico }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="p-3 rounded border {% if dispensacion.retiro_tercero %}border-primary bg-primary bg-opacity-10{% else %}bg-light{% endif %} h-100">
+                <h6 class="fw-bolder text-uppercase small {% if dispensacion.retiro_tercero %}text-primary{% else %}text-dark{% endif %} mb-2">
+                    <i class="bi bi-person-check-fill me-1"></i>2. Individualización de Quien Retira Físicamente (RF-11)
+                </h6>
+                {% if dispensacion.retiro_tercero and dispensacion.tercero_autorizado %}
+                <div class="small">
+                    <div class="mb-1"><span class="badge bg-primary">RETIRO POR TERCERO AUTORIZADO / CUIDADOR</span></div>
+                    <div class="mb-1"><strong>Nombre del Receptor:</strong> {{ dispensacion.tercero_autorizado.nombre_completo }}</div>
+                    <div class="mb-1"><strong>RUT del Receptor (Módulo 11):</strong> <code class="fw-bold">{{ dispensacion.tercero_autorizado.rut }}</code></div>
+                    <div class="mb-1"><strong>Parentesco / Vínculo Legal:</strong> <strong>{{ dispensacion.tercero_autorizado.parentesco }}</strong></div>
+                    <div class="mb-0"><strong>Teléfono de Contacto:</strong> {{ dispensacion.tercero_autorizado.telefono }}</div>
+                </div>
+                {% else %}
+                <div class="small">
+                    <div class="mb-1"><span class="badge bg-success">RETIRO POR PACIENTE TITULAR</span></div>
+                    <div class="mb-1"><strong>Nombre del Receptor:</strong> {{ dispensacion.receta.paciente.nombre_completo }}</div>
+                    <div class="mb-1"><strong>RUT del Receptor:</strong> <code class="fw-bold">{{ dispensacion.receta.paciente.rut }}</code></div>
+                    <div class="mb-0"><strong>Observaciones:</strong> {{ dispensacion.observaciones|default:"Entrega directa en ventanilla asistencial." }}</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Detalle de Medicamentos y Lotes FEFO Entregados -->
+    <h6 class="fw-bolder text-uppercase small text-dark mb-2">
+        <i class="bi bi-capsule me-1"></i>3. Desglose de Fármacos, Posología y Trazabilidad de Lotes (Algoritmo FEFO)
+    </h6>
+    <div class="table-responsive mb-4">
+        <table class="table table-cesfam table-bordered mb-0">
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>Medicamento / Presentación</th>
+                    <th>Posología Indicada</th>
+                    <th>Lote Despachado</th>
+                    <th>Vencimiento</th>
+                    <th>Cant. Entregada</th>
+                    <th>Trazabilidad FEFO</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in detalles %}
+                <tr>
+                    <td><code>{{ d.detalle_receta.medicamento.codigo }}</code></td>
+                    <td>
+                        <strong>{{ d.detalle_receta.medicamento.nombre_generico }}</strong> {{ d.detalle_receta.medicamento.concentracion }}
+                        <div class="small text-muted">{{ d.detalle_receta.medicamento.forma_farmaceutica }}</div>
+                    </td>
+                    <td class="small">{{ d.detalle_receta.posologia }} ({{ d.detalle_receta.dias_tratamiento }} días)</td>
+                    <td><code class="fw-bold">{{ d.lote.numero_lote }}</code></td>
+                    <td class="small">{{ d.lote.fecha_vencimiento|date:"d/m/Y" }}</td>
+                    <td class="fw-bolder fs-6 text-center">{{ d.cantidad }}</td>
+                    <td>
+                        {% if d.fefo_override %}
+                        <span class="badge bg-warning text-dark">Override Autorizado</span>
+                        <div class="small text-muted mt-1">Justificación: {{ d.justificacion_override }}</div>
+                        {% else %}
+                        <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>FEFO Estricto</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pie de Firmas y Responsabilidad Sanitaria -->
+    <div class="row g-4 mt-2 pt-4 border-top">
+        <div class="col-6 text-center">
+            <div class="border-top border-dark mx-auto pt-2" style="max-width: 280px;">
+                <div class="fw-bold small">{{ dispensacion.usuario_dispensador.get_full_name }}</div>
+                <div class="text-muted" style="font-size: 0.75rem;">
+                    {{ dispensacion.usuario_dispensador.get_rol_display }} • RUT: {{ dispensacion.usuario_dispensador.rut }}<br>
+                    Firma y Timbre Funcionario Farmacia CESFAM
+                </div>
+            </div>
+        </div>
+        <div class="col-6 text-center">
+            <div class="border-top border-dark mx-auto pt-2" style="max-width: 280px;">
+                <div class="fw-bold small">
+                    {% if dispensacion.retiro_tercero and dispensacion.tercero_autorizado %}
+                        {{ dispensacion.tercero_autorizado.nombre_completo }} ({{ dispensacion.tercero_autorizado.parentesco }})
+                    {% else %}
+                        {{ dispensacion.receta.paciente.nombre_completo }} (Titular)
+                    {% endif %}
+                </div>
+                <div class="text-muted" style="font-size: 0.75rem;">
+                    RUT Receptor: {% if dispensacion.retiro_tercero and dispensacion.tercero_autorizado %}{{ dispensacion.tercero_autorizado.rut }}{% else %}{{ dispensacion.receta.paciente.rut }}{% endif %}<br>
+                    Firma de Conformidad de Recepción Gratuita ($0 Copago)
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

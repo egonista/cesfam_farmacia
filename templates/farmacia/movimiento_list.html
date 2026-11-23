@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Movimientos de Stock{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4><i class="bi bi-arrow-left-right me-2"></i>Movimientos de Stock</h4>
+        <a href="{% url 'farmacia:traspaso' %}" class="btn btn-cesfam"><i class="bi bi-arrow-repeat me-1"></i>Nuevo Traspaso</a>
+    </div>
+    <div class="card"><div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-cesfam">
+                <thead><tr><th>Fecha</th><th>Tipo</th><th>Medicamento</th><th>Lote</th><th>Cantidad</th><th>Stock Ant.</th><th>Stock Post.</th><th>Usuario</th></tr></thead>
+                <tbody>{% for m in movimientos %}<tr><td>{{ m.fecha|date:"d/m/Y H:i" }}</td><td><span class="badge bg-{% if 'ingreso' in m.tipo %}success{% elif 'egreso' in m.tipo %}danger{% else %}info{% endif %}">{{ m.get_tipo_display }}</span></td><td>{{ m.lote.medicamento.nombre_generico }}</td><td>{{ m.lote.numero_lote }}</td><td>{{ m.cantidad }}</td><td>{{ m.cantidad_anterior }}</td><td>{{ m.cantidad_posterior }}</td><td>{{ m.usuario.get_full_name }}</td></tr>{% empty %}<tr><td colspan="8" class="text-center text-muted">Sin movimientos registrados.</td></tr>{% endfor %}</tbody>
+            </table>
+        </div>
+    </div></div>
+</div>
+{% endblock %}

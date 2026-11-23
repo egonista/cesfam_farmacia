@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Recetas{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4><i class="bi bi-file-earmark-medical me-2"></i>Recetas Médicas</h4>
+        <a href="{% url 'dispensacion:receta_crear' %}" class="btn btn-cesfam"><i class="bi bi-plus-circle me-1"></i>Nueva Receta</a>
+    </div>
+    <div class="card"><div class="card-body">
+        <form method="get" class="row g-2 mb-3">
+            <div class="col-md-5"><input type="text" name="q" class="form-control" placeholder="Buscar por N° receta, RUT o apellido..." value="{{ query }}"></div>
+            <div class="col-md-3"><select name="estado" class="form-select"><option value="">Todos los estados</option>{% for val, label in estados %}<option value="{{ val }}" {% if estado == val %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-2"><button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-search me-1"></i>Buscar</button></div>
+        </form>
+        <div class="table-responsive"><table class="table table-cesfam"><thead><tr><th>N° Receta</th><th>Paciente</th><th>Médico</th><th>Tipo</th><th>Fecha</th><th>Estado</th><th>Vigente</th><th></th></tr></thead><tbody>{% for r in recetas %}<tr><td><strong>{{ r.numero_receta }}</strong></td><td>{{ r.paciente.nombre_completo }}</td><td>{{ r.medico }}</td><td>{{ r.get_tipo_display }}</td><td>{{ r.fecha_emision|date:"d/m/Y" }}</td><td><span class="badge bg-{% if r.estado == 'pendiente' %}warning text-dark{% elif r.estado == 'total' %}success{% elif r.estado == 'anulada' %}danger{% else %}secondary{% endif %}">{{ r.get_estado_display }}</span></td><td>{% if r.esta_vigente %}✅{% else %}❌{% endif %}</td><td><a href="{% url 'dispensacion:receta_detalle' r.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td></tr>{% empty %}<tr><td colspan="8" class="text-center text-muted">Sin recetas.</td></tr>{% endfor %}</tbody></table></div>
+    </div></div>
+</div>
+{% endblock %}
