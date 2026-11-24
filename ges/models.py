@@ -21,6 +21,27 @@ class PatologiaGES(models.Model):
     def __str__(self):
         return f'[{self.codigo}] {self.nombre}'
 
+    @property
+    def sigla_badge(self):
+        """Nombre clínico abreviado para badges compactos (ej. HTA, DM2, EPOC)."""
+        nombre_low = (self.nombre or '').lower()
+        if 'hipertensión' in nombre_low or 'hipertension' in nombre_low:
+            return 'HTA'
+        if 'diabetes mellitus tipo 2' in nombre_low or 'diabetes tipo 2' in nombre_low:
+            return 'DM2'
+        if 'diabetes mellitus tipo 1' in nombre_low or 'diabetes tipo 1' in nombre_low:
+            return 'DM1'
+        if 'epoc' in nombre_low or 'pulmonar obstructiva' in nombre_low:
+            return 'EPOC'
+        if 'asma' in nombre_low:
+            return 'Asma'
+        if 'depresión' in nombre_low or 'depresion' in nombre_low:
+            return 'Depresión'
+        if 'hipotiroidismo' in nombre_low:
+            return 'Hipotiroidismo'
+        palabras = [p for p in (self.nombre or '').split() if p]
+        return ' '.join(palabras[:2]) if palabras else self.codigo
+
 
 class CanastaGES(models.Model):
     """Canasta farmacológica oficial de una patología GES."""

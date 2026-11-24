@@ -2,15 +2,17 @@
 {% block title %}Carros Clínicos{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
         <div>
             <h4 class="mb-1 fw-bolder"><i class="bi bi-heart-pulse-fill text-danger me-2"></i>Carros Clínicos Asistenciales</h4>
             <p class="text-muted small mb-0">Control de dotación de emergencia (Carro de Paro) y administración de sala (Carro Unidosis)</p>
         </div>
         {% if user.rol == 'admin' or user.rol == 'quimico' %}
-        <button type="button" class="btn btn-cesfam btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoCarro">
-            <i class="bi bi-plus-circle me-1"></i>Nuevo Carro Clínico
-        </button>
+        <div class="page-header-actions">
+            <button type="button" class="btn btn-cesfam btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoCarro">
+                <i class="bi bi-plus-circle me-1"></i>+ Nuevo Carro
+            </button>
+        </div>
         {% endif %}
     </div>
 

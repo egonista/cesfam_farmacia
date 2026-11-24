@@ -8,6 +8,7 @@ app_name = 'farmacia'
 
 urlpatterns = [
     path('medicamentos/', views.medicamento_list, name='medicamento_list'),
+    path('arsenal/', views.medicamento_list, name='arsenal'),
     path('medicamentos/<int:pk>/', views.medicamento_detalle, name='medicamento_detalle'),
     path('lotes/', views.lote_list, name='lote_list'),
     path('lotes/crear/', views.lote_crear, name='lote_crear'),

@@ -11,7 +11,7 @@ from django.db import transaction
 from django.db.models import Q
 
 from core.models import (
-    Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
+    SeccionCurso, Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
 )
 from core.utils import formatear_rut, registrar_auditoria
 from farmacia.models import (
@@ -46,9 +46,17 @@ class Command(BaseCommand):
         hoy = date.today()
 
         # ----------------------------------------------------
-        # 1. USUARIOS (RBAC - 4 Roles)
+        # 1. USUARIOS (RBAC - 4 Roles) Y SECCIONES / CURSOS
         # ----------------------------------------------------
-        self.stdout.write("1. Creando usuarios con RBAC...")
+        self.stdout.write("1. Creando secciones y usuarios con RBAC...")
+
+        secciones_base = [
+            ('Docencia', 'Equipo docente y coordinación del simulador CESFAM'),
+            ('AP-N4-C1', 'Sección base de simulación clínica INACAP'),
+        ]
+        for nom_sec, desc_sec in secciones_base:
+            if not SeccionCurso.objects.filter(nombre__iexact=nom_sec).exists():
+                SeccionCurso.objects.create(nombre=nom_sec, descripcion=desc_sec, activa=True)
 
         # PIN por defecto hasheado para 2FA
         pin_hash = make_password('123456')
@@ -60,6 +68,7 @@ class Command(BaseCommand):
                 'first_name': 'Egon',
                 'last_name': 'Muñoz Muttel',
                 'email': 'egon.munoz@cesfam.cl',
+                'seccion': 'Docencia',
                 'rol': Usuario.Rol.ADMINISTRADOR,
                 'is_staff': True,
                 'is_superuser': True,
@@ -71,6 +80,7 @@ class Command(BaseCommand):
                 'first_name': 'Renato',
                 'last_name': 'Suazo Burgos',
                 'email': 'renato.suazo@cesfam.cl',
+                'seccion': 'AP-N4-C1',
                 'rol': Usuario.Rol.QUIMICO_FARMACEUTICO,
                 'is_staff': True,
                 'is_superuser': False,
@@ -82,6 +92,7 @@ class Command(BaseCommand):
                 'first_name': 'Rodrigo',
                 'last_name': 'Álvarez Castro',
                 'email': 'rodrigo.alvarez@cesfam.cl',
+                'seccion': 'AP-N4-C1',
                 'rol': Usuario.Rol.TECNICO_FARMACIA,
                 'is_staff': False,
                 'is_superuser': False,
@@ -92,6 +103,7 @@ class Command(BaseCommand):
                 'first_name': 'Camila',
                 'last_name': 'González Soto',
                 'email': 'camila.gonzalez@cesfam.cl',
+                'seccion': 'AP-N4-C1',
                 'rol': Usuario.Rol.PERSONAL_CLINICO,
                 'is_staff': False,
                 'is_superuser': False,
@@ -111,12 +123,16 @@ class Command(BaseCommand):
                     first_name=u_data['first_name'],
                     last_name=u_data['last_name'],
                     email=u_data['email'],
+                    seccion=u_data.get('seccion', ''),
                     rol=u_data['rol'],
                     is_staff=u_data['is_staff'],
                     is_superuser=u_data['is_superuser'],
                     pin_seguridad=u_data.get('pin_seguridad', ''),
                 )
                 created = True
+            elif not user.seccion and u_data.get('seccion'):
+                user.seccion = u_data['seccion']
+                user.save(update_fields=['seccion'])
             if created or not preservar_usuarios:
                 user.set_password('Inacap2026!')
                 if u_data.get('pin_seguridad'):
@@ -448,7 +464,7 @@ class Command(BaseCommand):
         ins_suero, _ = Medicamento.objects.get_or_create(
             codigo='INS-CLI-001',
             defaults={
-                'nombre_generico': 'Suero Fisiológico NaCl 0,9% 500 ml',
+                'nombre_generico': 'Suero Fisiológico NaCl',
                 'nombre_comercial': 'Cloruro de Sodio 0,9% Matraz / CENABAST',
                 'concentracion': '0,9% (500 ml)',
                 'forma_farmaceutica': 'Matraz solución estéril',
@@ -460,6 +476,10 @@ class Command(BaseCommand):
                 'es_controlado': False,
             }
         )
+        if ins_suero.nombre_generico != 'Suero Fisiológico NaCl' or ins_suero.concentracion != '0,9% (500 ml)':
+            ins_suero.nombre_generico = 'Suero Fisiológico NaCl'
+            ins_suero.concentracion = '0,9% (500 ml)'
+            ins_suero.save(update_fields=['nombre_generico', 'concentracion'])
         ins_jeringa, _ = Medicamento.objects.get_or_create(
             codigo='INS-CLI-002',
             defaults={
@@ -1186,16 +1206,19 @@ class Command(BaseCommand):
                 'cantidad': 100,
                 'saldo_anterior': 0,
                 'saldo_posterior': 100,
-                'quimico_responsable': usuarios_creados['admin'],
+                'quimico_responsable': usuarios_creados['qf_suazo'],
                 'verificacion_2fa': True,
                 'observaciones': 'Recepción anual estupefacientes Resolución Sanitaria Seremi N° 2026/410',
             },
         ]
         for a_data in asientos_ctrl:
-            LibroControlados.objects.get_or_create(
+            asiento_obj, _ = LibroControlados.objects.get_or_create(
                 folio=a_data['folio'],
                 defaults=a_data
             )
+            if asiento_obj.folio == 3 and asiento_obj.quimico_responsable_id != usuarios_creados['qf_suazo'].pk:
+                asiento_obj.quimico_responsable = usuarios_creados['qf_suazo']
+                asiento_obj.save(update_fields=['quimico_responsable'])
 
         # ----------------------------------------------------
         # 11. AUDITORÍA INMUTABLE Y ALERTAS EN POSTGRESQL (JSONB)

@@ -4,18 +4,25 @@ Registro de modelos Core en el admin de Django.
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import (
-    Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
+    SeccionCurso, Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
 )
+
+
+@admin.register(SeccionCurso)
+class SeccionCursoAdmin(admin.ModelAdmin):
+    list_display = ('nombre', 'descripcion', 'activa', 'fecha_creacion')
+    list_filter = ('activa',)
+    search_fields = ('nombre', 'descripcion')
 
 
 @admin.register(Usuario)
 class UsuarioAdmin(UserAdmin):
-    list_display = ('username', 'rut', 'get_full_name', 'rol', 'is_active')
-    list_filter = ('rol', 'is_active')
-    search_fields = ('username', 'rut', 'first_name', 'last_name')
+    list_display = ('username', 'rut', 'get_full_name', 'seccion', 'rol', 'is_active')
+    list_filter = ('rol', 'seccion', 'is_active')
+    search_fields = ('username', 'rut', 'first_name', 'last_name', 'seccion')
     fieldsets = UserAdmin.fieldsets + (
         ('Datos CESFAM', {
-            'fields': ('rut', 'rol', 'telefono', 'activo_sistema', 'pin_seguridad')
+            'fields': ('rut', 'rol', 'seccion', 'telefono', 'activo_sistema', 'pin_seguridad')
         }),
     )
 

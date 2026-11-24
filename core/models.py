@@ -6,7 +6,49 @@ Programas de Salud y configuraciones base.
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
+
+
+class SeccionCurso(models.Model):
+    """
+    Catálogo de Secciones / Cursos para agrupar funcionarios y estudiantes del simulador.
+    """
+    nombre = models.CharField(
+        max_length=60,
+        unique=True,
+        verbose_name='Nombre de Sección / Curso',
+        help_text='Ej: AP-N4-C1, Sección 001D, Docencia'
+    )
+    descripcion = models.CharField(
+        max_length=180,
+        blank=True,
+        default='',
+        verbose_name='Descripción'
+    )
+    activa = models.BooleanField(default=True, verbose_name='Activa')
+    fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name='Fecha de creación')
+
+    class Meta:
+        verbose_name = 'Sección / Curso'
+        verbose_name_plural = 'Secciones / Cursos'
+        ordering = ['nombre']
+        constraints = [
+            models.UniqueConstraint(
+                Lower('nombre'),
+                name='uniq_seccioncurso_nombre_ci',
+            )
+        ]
+
+    def clean(self):
+        self.nombre = (self.nombre or '').strip()
+        if not self.nombre:
+            raise ValidationError({'nombre': 'El nombre de la sección no puede estar vacío.'})
+        if SeccionCurso.objects.exclude(pk=self.pk).filter(nombre__iexact=self.nombre).exists():
+            raise ValidationError({'nombre': f'Ya existe una sección registrada con el nombre "{self.nombre}".'})
+
+    def __str__(self):
+        return self.nombre
 
 
 class Usuario(AbstractUser):
@@ -33,6 +75,14 @@ class Usuario(AbstractUser):
         help_text='Formato: 12.345.678-9'
     )
     telefono = models.CharField(max_length=15, blank=True, verbose_name='Teléfono')
+    seccion = models.CharField(
+        max_length=60,
+        blank=True,
+        default='',
+        db_index=True,
+        verbose_name='Sección / Curso',
+        help_text='Ej: AP-N4-C1, Sección 001D, Docencia'
+    )
     totp_secret = models.CharField(
         max_length=64,
         blank=True,

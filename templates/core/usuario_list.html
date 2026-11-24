@@ -1,34 +1,165 @@
 {% extends 'base.html' %}
 {% block title %}Gestión de Usuarios y Perfiles{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
     <div>
         <h4 class="fw-bolder mb-0"><i class="bi bi-people-fill text-danger me-2"></i>Gestión de Usuarios y Perfiles</h4>
         <p class="text-muted small mb-0 mt-1">
-            Administración del personal habilitado, datos de contacto y permisos por función asistencial
+            Administración del personal, estudiantes por sección/curso y permisos por función asistencial
         </p>
     </div>
     {% if user.rol == 'admin' %}
-    <button type="button" class="btn btn-cesfam" data-bs-toggle="modal" data-bs-target="#modalNuevoUsuario">
-        <i class="bi bi-person-plus-fill me-1"></i>Registrar Funcionario
-    </button>
+    <div class="page-header-actions">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#modalGestionarSecciones">
+            <i class="bi bi-collection me-1"></i>Gestionar Secciones
+        </button>
+        <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalImportarCurso">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i>Importar Curso (Excel/CSV)
+        </button>
+        <button type="button" class="btn btn-cesfam btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoUsuario">
+            <i class="bi bi-person-plus-fill me-1"></i>+ Registrar Funcionario
+        </button>
+    </div>
     {% endif %}
 </div>
 
+{% if import_errores %}
+<div class="alert alert-danger alert-dismissible fade show shadow-sm mb-4" role="alert">
+    <div class="d-flex align-items-start gap-2">
+        <i class="bi bi-shield-exclamation fs-5 mt-1"></i>
+        <div class="flex-grow-1">
+            <strong class="d-block mb-1">Detalle de errores en la importación (no se creó ningún registro):</strong>
+            <ul class="mb-0 small ps-3">
+                {% for err in import_errores %}
+                <li>{{ err }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+</div>
+{% endif %}
+
+<!-- Barra de Filtros -->
+<div class="card mb-3 border-0 shadow-sm">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-end" data-live-filter="#liveResultsUsuarios" data-live-debounce="300">
+            <div class="col-md-4">
+                <label for="filtro_q" class="form-label small fw-semibold text-muted mb-1">Buscar</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" id="filtro_q" name="q" value="{{ q }}" class="form-control"
+                           placeholder="Nombre, Usuario o RUT..." autocomplete="off">
+                </div>
+            </div>
+            <div class="col-md-2">
+                <label for="filtro_seccion" class="form-label small fw-semibold text-muted mb-1">Sección / Curso</label>
+                <select id="filtro_seccion" name="seccion" class="form-select form-select-sm">
+                    <option value="">Todas las secciones</option>
+                    {% for sec in secciones_curso %}
+                    <option value="{{ sec.nombre }}" {% if seccion_filtro == sec.nombre %}selected{% endif %}>
+                        {{ sec.nombre }}{% if not sec.activa %} (Inactiva){% endif %}
+                    </option>
+                    {% endfor %}
+                    {% if hay_sin_seccion %}
+                    <option value="__sin_seccion__" {% if seccion_filtro == '__sin_seccion__' %}selected{% endif %}>Sin sección</option>
+                    {% endif %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="filtro_rol" class="form-label small fw-semibold text-muted mb-1">Rol</label>
+                <select id="filtro_rol" name="rol" class="form-select form-select-sm">
+                    <option value="">Todos los roles</option>
+                    {% for val, label in roles %}
+                    <option value="{{ val }}" {% if rol_filtro == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="filtro_estado" class="form-label small fw-semibold text-muted mb-1">Estado</label>
+                <select id="filtro_estado" name="estado" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    <option value="activo" {% if estado_filtro == 'activo' %}selected{% endif %}>Activos</option>
+                    <option value="inactivo" {% if estado_filtro == 'inactivo' %}selected{% endif %}>Inactivos</option>
+                </select>
+            </div>
+            <div class="col-md-auto">
+                <a href="{% url 'core:usuario_list' %}" data-live-filter-clear
+                   class="btn btn-sm btn-outline-secondary {% if not filtros_activos %}d-none{% endif %}" title="Limpiar filtros">
+                    <i class="bi bi-x-lg me-1"></i>Limpiar
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if user.rol == 'admin' %}
+<!-- Formulario dedicado para Acciones Masivas (sin anidar forms en la tabla) -->
+<form id="formAccionMasiva" method="post" class="d-none">
+    {% csrf_token %}
+    <input type="hidden" name="accion_post" value="accion_masiva">
+    <input type="hidden" name="tipo_masivo" id="inputTipoMasivo" value="">
+</form>
+
+<!-- Barra discreta de Acción Masiva -->
+<div id="barraAccionMasiva" class="alert alert-light border shadow-sm py-2 px-3 mb-3 d-none">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div class="small fw-semibold text-dark">
+            <i class="bi bi-check2-square text-danger me-1"></i>
+            <span id="contadorSeleccionados">0</span> cuenta(s) seleccionada(s)
+            <span class="text-muted fw-normal ms-1">(para talleres o cierre de semestre)</span>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <div class="input-group input-group-sm" style="width: auto;">
+                <select name="nuevo_rol_masivo" form="formAccionMasiva" class="form-select form-select-sm" aria-label="Nuevo rol masivo">
+                    {% for val, label in roles %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="enviarAccionMasiva('cambiar_rol')">
+                    <i class="bi bi-arrow-repeat me-1"></i>Cambiar Rol
+                </button>
+            </div>
+            <div class="btn-group btn-group-sm">
+                <button type="button" class="btn btn-outline-success" onclick="enviarAccionMasiva('activar')">
+                    <i class="bi bi-person-check me-1"></i>Activar
+                </button>
+                <button type="button" class="btn btn-outline-danger" onclick="enviarAccionMasiva('desactivar')">
+                    <i class="bi bi-person-slash me-1"></i>Desactivar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Tabla de Usuarios Registrados -->
+<div id="liveResultsUsuarios">
 <div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-person-badge me-2 text-danger"></i>Dotación de Personal del Establecimiento</span>
-        <span class="badge bg-dark">{{ usuarios|length }} cuentas registradas</span>
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span><i class="bi bi-person-badge me-2 text-danger"></i>Dotación de Personal y Estudiantes</span>
+        <span class="badge bg-dark">
+            {% if filtros_activos %}
+                {{ usuarios|length }} de {{ total_usuarios }} cuentas
+            {% else %}
+                {{ usuarios|length }} cuentas registradas
+            {% endif %}
+        </span>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-cesfam mb-0">
+            <table class="table table-cesfam mb-0 align-middle">
                 <thead>
                     <tr>
+                        {% if user.rol == 'admin' %}
+                        <th style="width: 36px;" class="text-center">
+                            <input type="checkbox" class="form-check-input" id="checkAllUsuarios" title="Seleccionar todos los usuarios visibles">
+                        </th>
+                        {% endif %}
                         <th>Usuario</th>
                         <th>Nombre Completo</th>
                         <th>RUT</th>
+                        <th>Sección / Curso</th>
                         <th>Teléfono</th>
                         <th>Correo Institucional</th>
                         <th>Cargo / Función</th>
@@ -40,21 +171,39 @@
                 <tbody>
                     {% for u in usuarios %}
                     <tr class="{% if not u.is_active %}table-secondary text-muted{% endif %}">
+                        {% if user.rol == 'admin' %}
+                        <td class="text-center">
+                            {% if u.pk != user.pk %}
+                            <input type="checkbox" class="form-check-input check-usuario-row"
+                                   name="usuario_ids" value="{{ u.pk }}" form="formAccionMasiva"
+                                   aria-label="Seleccionar {{ u.username }}">
+                            {% else %}
+                            <i class="bi bi-lock-fill text-muted small" title="Cuenta en sesión protegida"></i>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                         <td><code class="fw-bold">{{ u.username }}</code></td>
-                        <td><strong>{{ u.get_full_name }}</strong></td>
-                        <td class="font-monospace">{{ u.rut }}</td>
-                        <td>{{ u.telefono|default:"+56984120091" }}</td>
-                        <td>{{ u.email|default:"—" }}</td>
+                        <td><strong>{{ u.get_full_name|default:u.username }}</strong></td>
+                        <td class="font-monospace text-nowrap">{{ u.rut }}</td>
+                        <td>
+                            {% if u.seccion %}
+                            <span class="badge bg-light text-dark border fw-semibold">{{ u.seccion }}</span>
+                            {% else %}
+                            <span class="text-muted small">Sin sección</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap">{{ u.telefono|default:"—" }}</td>
+                        <td class="small">{{ u.email|default:"—" }}</td>
                         <td>
                             <span class="badge {% if u.rol == 'admin' %}bg-dark{% elif u.rol == 'quimico' %}bg-danger{% elif u.rol == 'clinico' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
                                 {{ u.get_rol_display }}
                             </span>
                         </td>
                         <td>
-                            {% if u.pin_seguridad or u.totp_secret %}
+                            {% if u.rol == 'quimico' %}
                             <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Habilitado</span>
                             {% else %}
-                            <span class="badge bg-light text-muted border">Estándar</span>
+                            <span class="badge bg-light text-muted border">No aplica</span>
                             {% endif %}
                         </td>
                         <td>
@@ -69,8 +218,8 @@
                                 <button type="button" class="btn btn-sm btn-outline-primary"
                                         data-bs-toggle="modal"
                                         data-bs-target="#modalEditarUsuario"
-                                        onclick="cargarEdicionUsuario('{{ u.pk }}', '{{ u.username|escapejs }}', '{{ u.rut|escapejs }}', '{{ u.first_name|escapejs }}', '{{ u.last_name|escapejs }}', '{{ u.telefono|default:'+56984120091'|escapejs }}', '{{ u.email|default:''|escapejs }}', '{{ u.rol|escapejs }}')"
-                                        title="Editar datos y rol">
+                                        onclick="cargarEdicionUsuario('{{ u.pk }}', '{{ u.username|escapejs }}', '{{ u.rut|escapejs }}', '{{ u.first_name|escapejs }}', '{{ u.last_name|escapejs }}', '{{ u.telefono|default:''|escapejs }}', '{{ u.email|default:''|escapejs }}', '{{ u.seccion|default:''|escapejs }}', '{{ u.rol|escapejs }}', '{% if u.is_active %}activo{% else %}inactivo{% endif %}', {% if u.pk == user.pk %}true{% else %}false{% endif %})"
+                                        title="Editar datos, sección, estado y contraseña">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
                                 <a href="{% url 'core:simular_rol' u.rol %}" class="btn btn-sm btn-outline-dark" title="Cambiar a este perfil">
@@ -89,15 +238,165 @@
                             </div>
                         </td>
                     </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="{% if user.rol == 'admin' %}11{% else %}10{% endif %}" class="text-center py-4 text-muted">
+                            <i class="bi bi-search fs-4 d-block mb-1"></i>
+                            No se encontraron cuentas con los filtros seleccionados.
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
+</div>
+
+{% if user.rol == 'admin' %}
+<!-- Modal Gestionar Secciones / Cursos (CRUD completo) -->
+<div class="modal fade" id="modalGestionarSecciones" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-collection me-2"></i>Gestionar Secciones / Cursos</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                {% if seccion_feedback %}
+                <div class="alert alert-{{ seccion_feedback.tipo }} alert-dismissible fade show py-2 small" role="alert">
+                    {{ seccion_feedback.texto }}
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+                </div>
+                {% endif %}
+
+                <!-- Formulario Crear / Editar Sección -->
+                <div class="card border mb-3" id="cardFormSeccion">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center bg-light">
+                        <span class="fw-semibold small" id="tituloFormSeccion">
+                            <i class="bi bi-plus-circle text-danger me-1"></i>Crear Nueva Sección / Curso
+                        </span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="btnCancelarEdicionSeccion" onclick="resetFormSeccion()">
+                            <i class="bi bi-x-circle me-1"></i>Cancelar edición
+                        </button>
+                    </div>
+                    <div class="card-body py-3">
+                        <form method="post" action="{% url 'core:seccion_crear' %}" id="formSeccionCurso">
+                            {% csrf_token %}
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-3">
+                                    <label for="sec_nombre" class="form-label small fw-semibold mb-1">
+                                        Nombre <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" name="nombre" id="sec_nombre" class="form-control form-control-sm"
+                                           maxlength="60" required placeholder="ej: Sección 002V, AP-N4-C2">
+                                </div>
+                                <div class="col-md-5">
+                                    <label for="sec_descripcion" class="form-label small fw-semibold mb-1">Descripción (opcional)</label>
+                                    <input type="text" name="descripcion" id="sec_descripcion" class="form-control form-control-sm"
+                                           maxlength="180" placeholder="ej: Taller de Farmacia Asistencial Vespertino">
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="form-check form-switch mb-1">
+                                        <input class="form-check-input" type="checkbox" name="activa" id="sec_activa" checked>
+                                        <label class="form-check-label small fw-semibold" for="sec_activa">Activa</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="submit" class="btn btn-sm btn-cesfam w-100" id="btnSubmitSeccion">
+                                        <i class="bi bi-plus-lg me-1"></i>Crear Sección
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="avisoRenombreSeccion" class="form-text text-primary mt-2 d-none">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Al renombrar esta sección, se actualizará automáticamente en todos los usuarios que la tengan asignada.
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Confirmación obligatoria de eliminación -->
+                <div class="alert alert-warning border-warning d-none mb-3" id="boxConfirmarEliminarSeccion">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div class="small">
+                            <strong class="d-block text-dark">
+                                <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>
+                                Confirmar eliminación de la sección "<span id="delSecNombre"></span>"
+                            </strong>
+                            <span id="delSecAvisoUsuarios"></span>
+                        </div>
+                        <form method="post" id="formEliminarSeccion" class="d-flex gap-2 m-0">
+                            {% csrf_token %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelarEliminarSeccion()">Cancelar</button>
+                            <button type="submit" class="btn btn-sm btn-danger">
+                                <i class="bi bi-trash me-1"></i>Confirmar Eliminación
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Tabla de Secciones Registradas -->
+                <div class="table-responsive border rounded">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Descripción</th>
+                                <th class="text-center">Usuarios asignados</th>
+                                <th class="text-center">Estado</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sec in secciones_curso %}
+                            <tr>
+                                <td><strong class="text-dark">{{ sec.nombre }}</strong></td>
+                                <td class="small text-muted">{{ sec.descripcion|default:"—" }}</td>
+                                <td class="text-center">
+                                    <span class="badge {% if sec.num_usuarios > 0 %}bg-dark{% else %}bg-light text-muted border{% endif %}">
+                                        {{ sec.num_usuarios }} usuario(s)
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    {% if sec.activa %}
+                                    <span class="badge bg-success">Activa</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Inactiva</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end text-nowrap">
+                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                            onclick="editarSeccionCurso('{% url 'core:seccion_editar' sec.pk %}', '{{ sec.nombre|escapejs }}', '{{ sec.descripcion|default:''|escapejs }}', {% if sec.activa %}true{% else %}false{% endif %})"
+                                            title="Editar / Renombrar sección">
+                                        <i class="bi bi-pencil-square me-1"></i>Editar
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            onclick="solicitarEliminarSeccion('{% url 'core:seccion_eliminar' sec.pk %}', '{{ sec.nombre|escapejs }}', {{ sec.num_usuarios }})"
+                                            title="Eliminar sección">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center py-3 text-muted small">
+                                    Aún no hay secciones registradas. Cree una nueva sección arriba.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Modal Crear Nuevo Usuario -->
-{% if user.rol == 'admin' %}
 <div class="modal fade" id="modalNuevoUsuario" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -108,42 +407,66 @@
             <form method="post">
                 {% csrf_token %}
                 <div class="modal-body">
+                    <p class="small text-muted mb-3">Los campos marcados con <span class="text-danger fw-bold">*</span> son obligatorios.</p>
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label">Nombre de Usuario</label>
+                            <label class="form-label fw-semibold">Nombre de Usuario <span class="text-danger">*</span></label>
                             <input type="text" name="username" class="form-control" required placeholder="ej: qf_valenzuela">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">RUT</label>
-                            <input type="text" name="rut" class="form-control" data-validate-rut required placeholder="12.345.678-5">
+                            <label class="form-label fw-semibold">RUT <span class="text-danger">*</span></label>
+                            <input type="text" name="rut" id="nuevo_rut" class="form-control" data-validate-rut required placeholder="12.345.678-5">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Cargo / Perfil</label>
+                            <label class="form-label fw-semibold">Cargo / Perfil <span class="text-danger">*</span></label>
                             <select name="rol" class="form-select" required>
                                 {% for val, label in roles %}
-                                <option value="{{ val }}">{{ label }}</option>
+                                <option value="{{ val }}" {% if val == 'tecnico' %}selected{% endif %}>{{ label }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Nombres</label>
+                            <label class="form-label fw-semibold">Nombres <span class="text-danger">*</span></label>
                             <input type="text" name="first_name" class="form-control" required>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Apellidos</label>
+                            <label class="form-label fw-semibold">Apellidos <span class="text-danger">*</span></label>
                             <input type="text" name="last_name" class="form-control" required>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Correo Institucional</label>
-                            <input type="email" name="email" class="form-control" placeholder="usuario@cesfam.cl">
+                            <label class="form-label fw-semibold">Sección / Curso</label>
+                            <select name="seccion" class="form-select">
+                                <option value="">— Sin sección —</option>
+                                {% for sec in secciones_activas %}
+                                <option value="{{ sec.nombre }}">{{ sec.nombre }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Teléfono de Contacto</label>
-                            <input type="text" name="telefono" class="form-control" placeholder="+56912345678" required>
+                            <label class="form-label fw-semibold">Correo Institucional</label>
+                            <input type="email" name="email" class="form-control" placeholder="usuario@inacapmail.cl">
                         </div>
-                        <div class="col-md-8">
-                            <label class="form-label">Contraseña Inicial</label>
-                            <input type="password" name="password" class="form-control" value="Inacap2026!" required>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Teléfono de Contacto</label>
+                            <input type="text" name="telefono" maxlength="15" class="form-control" placeholder="+56912345678">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Contraseña Inicial <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="password" name="password" id="nuevo_password" class="form-control" value="Inacap2026!" required>
+                                <button type="button" class="btn btn-outline-secondary" id="btnToggleNuevoPassword"
+                                        title="Mostrar u ocultar contraseña" aria-label="Mostrar u ocultar contraseña">
+                                    <i class="bi bi-eye" id="iconoToggleNuevoPassword"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="usar_rut_como_password" id="chkUsarRutPassword">
+                                <label class="form-check-label small" for="chkUsarRutPassword">
+                                    Usar RUT (sin puntos ni guion) como contraseña inicial
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -169,17 +492,18 @@
                 <input type="hidden" name="accion_post" value="editar_usuario">
                 <input type="hidden" name="usuario_id" id="edit_usuario_id">
                 <div class="modal-body">
+                    <p class="small text-muted mb-3">Los campos marcados con <span class="text-danger fw-bold">*</span> son obligatorios.</p>
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label fw-bold">Usuario (Login)</label>
                             <input type="text" id="edit_username" class="form-control" disabled>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label fw-bold">RUT</label>
+                            <label class="form-label fw-bold">RUT <span class="text-danger">*</span></label>
                             <input type="text" name="rut" id="edit_rut" class="form-control" required>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label fw-bold">Cargo / Rol Asignado</label>
+                            <label class="form-label fw-bold">Cargo / Rol Asignado <span class="text-danger">*</span></label>
                             <select name="rol" id="edit_rol" class="form-select" required>
                                 {% for val, label in roles %}
                                 <option value="{{ val }}">{{ label }}</option>
@@ -187,20 +511,52 @@
                             </select>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label fw-bold">Nombres</label>
+                            <label class="form-label fw-bold">Nombres <span class="text-danger">*</span></label>
                             <input type="text" name="first_name" id="edit_first_name" class="form-control" required>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label fw-bold">Apellidos</label>
+                            <label class="form-label fw-bold">Apellidos <span class="text-danger">*</span></label>
                             <input type="text" name="last_name" id="edit_last_name" class="form-control" required>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label fw-bold">Teléfono</label>
-                            <input type="text" name="telefono" id="edit_telefono" class="form-control" required>
+                            <label class="form-label fw-bold">Sección / Curso</label>
+                            <select name="seccion" id="edit_seccion" class="form-select">
+                                <option value="">— Sin sección —</option>
+                                {% for sec in secciones_curso %}
+                                <option value="{{ sec.nombre }}">
+                                    {{ sec.nombre }}{% if not sec.activa %} (Inactiva){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
                         </div>
-                        <div class="col-md-12">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Teléfono</label>
+                            <input type="text" name="telefono" id="edit_telefono" maxlength="15" class="form-control" placeholder="+56912345678">
+                        </div>
+                        <div class="col-md-4">
                             <label class="form-label fw-bold">Correo Institucional</label>
-                            <input type="email" name="email" id="edit_email" class="form-control">
+                            <input type="email" name="email" id="edit_email" class="form-control" placeholder="usuario@inacapmail.cl">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Estado de Cuenta <span class="text-danger">*</span></label>
+                            <select name="estado" id="edit_estado" class="form-select">
+                                <option value="activo">Activo</option>
+                                <option value="inactivo">Inactivo</option>
+                            </select>
+                            <div id="notaEstadoPropio" class="form-text text-muted d-none">
+                                Su propia cuenta en sesión siempre permanece activa.
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Nueva Contraseña <span class="text-muted fw-normal small">(opcional)</span></label>
+                            <div class="input-group">
+                                <input type="password" name="nueva_password" id="edit_nueva_password" class="form-control"
+                                       autocomplete="new-password" placeholder="Dejar vacío para mantener la contraseña actual">
+                                <button type="button" class="btn btn-outline-secondary" id="btnToggleEditPassword"
+                                        title="Mostrar u ocultar contraseña" aria-label="Mostrar u ocultar contraseña">
+                                    <i class="bi bi-eye" id="iconoToggleEditPassword"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -213,8 +569,78 @@
     </div>
 </div>
 
+<!-- Modal Importar Curso (Excel/CSV) -->
+<div class="modal fade" id="modalImportarCurso" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-spreadsheet me-2"></i>Importación Masiva de Curso (Excel / CSV)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{% url 'core:usuario_importar_curso' %}" enctype="multipart/form-data" id="formImportarCurso">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="alert alert-light border mb-3">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <div>
+                                <strong class="d-block small"><i class="bi bi-download text-danger me-1"></i>Paso 1: Descargar plantilla oficial</strong>
+                                <span class="text-muted small">Columnas: <code>rut, nombres, apellidos, correo, telefono, seccion, rol</code></span>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <a href="{% url 'core:usuario_descargar_plantilla' 'xlsx' %}" class="btn btn-sm btn-outline-success">
+                                    <i class="bi bi-file-earmark-excel me-1"></i>Plantilla .xlsx
+                                </a>
+                                <a href="{% url 'core:usuario_descargar_plantilla' 'csv' %}" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-filetype-csv me-1"></i>Plantilla .csv
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label for="inputArchivoCurso" class="form-label fw-semibold">
+                                Archivo de Estudiantes (.csv o .xlsx) <span class="text-danger">*</span>
+                            </label>
+                            <input type="file" name="archivo_curso" id="inputArchivoCurso" class="form-control"
+                                   accept=".csv,.xlsx" required>
+                            <div class="form-text">
+                                Solo archivos <strong>.csv</strong> o <strong>.xlsx</strong> reales (máximo <strong>2 MB</strong>). Se rechazan macros, scripts o archivos renombrados.
+                            </div>
+                            <div id="errorClienteArchivo" class="text-danger small mt-1 d-none"></div>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="seccion_defecto" class="form-label fw-semibold">Sección por defecto</label>
+                            <select name="seccion_defecto" id="seccion_defecto" class="form-select">
+                                <option value="">Usar columna del archivo</option>
+                                {% for sec in secciones_activas %}
+                                <option value="{{ sec.nombre }}">{{ sec.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Opcional: se usa si la columna <code>seccion</code> viene vacía.</div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info small mt-3 mb-0">
+                        <i class="bi bi-shield-lock me-1"></i>
+                        <strong>Validación atómica:</strong> Se verifica el RUT chileno (Módulo 11), rol válido (<code>tecnico</code>, <code>quimico</code>, <code>clinico</code> o <code>admin</code>) y ausencia de duplicados en todas las filas antes de guardar. Si alguna fila falla, no se crea ningún registro parcial. La contraseña inicial de cada cuenta será su <strong>RUT sin puntos ni guion</strong>.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam" id="btnSubmitImportar">
+                        <i class="bi bi-cloud-upload me-1"></i>Validar e Importar Curso
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
-function cargarEdicionUsuario(id, username, rut, firstName, lastName, telefono, email, rol) {
+const URL_SECCION_CREAR = "{% url 'core:seccion_crear' %}";
+
+function cargarEdicionUsuario(id, username, rut, firstName, lastName, telefono, email, seccion, rol, estado, esPropio) {
     document.getElementById('edit_usuario_id').value = id;
     document.getElementById('edit_username').value = username;
     document.getElementById('edit_rut').value = rut;
@@ -223,6 +649,239 @@ function cargarEdicionUsuario(id, username, rut, firstName, lastName, telefono, 
     document.getElementById('edit_telefono').value = telefono;
     document.getElementById('edit_email').value = email;
     document.getElementById('edit_rol').value = rol;
+
+    const secSelect = document.getElementById('edit_seccion');
+    // Remover opción temporal anterior si existía
+    const optTemp = secSelect.querySelector('option[data-temp-seccion="1"]');
+    if (optTemp) optTemp.remove();
+    const existeEnSelect = Array.from(secSelect.options).some(o => o.value === seccion);
+    if (seccion && !existeEnSelect) {
+        const nuevaOpt = document.createElement('option');
+        nuevaOpt.value = seccion;
+        nuevaOpt.textContent = seccion;
+        nuevaOpt.dataset.tempSeccion = '1';
+        secSelect.appendChild(nuevaOpt);
+    }
+    secSelect.value = seccion || '';
+
+    const estSelect = document.getElementById('edit_estado');
+    const notaPropio = document.getElementById('notaEstadoPropio');
+    estSelect.value = estado || 'activo';
+    estSelect.disabled = Boolean(esPropio);
+    if (notaPropio) {
+        notaPropio.classList.toggle('d-none', !esPropio);
+    }
+
+    const pwdEdit = document.getElementById('edit_nueva_password');
+    if (pwdEdit) {
+        pwdEdit.value = '';
+        pwdEdit.type = 'password';
+        const icoEdit = document.getElementById('iconoToggleEditPassword');
+        if (icoEdit) icoEdit.className = 'bi bi-eye';
+    }
+}
+
+function editarSeccionCurso(urlEditar, nombre, descripcion, activa) {
+    cancelarEliminarSeccion();
+    const form = document.getElementById('formSeccionCurso');
+    const card = document.getElementById('cardFormSeccion');
+    const titulo = document.getElementById('tituloFormSeccion');
+    const btnCancelar = document.getElementById('btnCancelarEdicionSeccion');
+    const btnSubmit = document.getElementById('btnSubmitSeccion');
+    const aviso = document.getElementById('avisoRenombreSeccion');
+
+    form.action = urlEditar;
+    document.getElementById('sec_nombre').value = nombre;
+    document.getElementById('sec_descripcion').value = descripcion;
+    document.getElementById('sec_activa').checked = Boolean(activa);
+
+    if (card) card.classList.add('border-primary');
+    if (titulo) titulo.innerHTML = `<i class="bi bi-pencil-square text-primary me-1"></i>Editando Sección: <strong>${nombre}</strong>`;
+    if (btnCancelar) btnCancelar.classList.remove('d-none');
+    if (btnSubmit) btnSubmit.innerHTML = '<i class="bi bi-save me-1"></i>Guardar Cambios';
+    if (aviso) aviso.classList.remove('d-none');
+    document.getElementById('sec_nombre').focus();
+}
+
+function resetFormSeccion() {
+    const form = document.getElementById('formSeccionCurso');
+    const card = document.getElementById('cardFormSeccion');
+    const titulo = document.getElementById('tituloFormSeccion');
+    const btnCancelar = document.getElementById('btnCancelarEdicionSeccion');
+    const btnSubmit = document.getElementById('btnSubmitSeccion');
+    const aviso = document.getElementById('avisoRenombreSeccion');
+
+    form.action = URL_SECCION_CREAR;
+    document.getElementById('sec_nombre').value = '';
+    document.getElementById('sec_descripcion').value = '';
+    document.getElementById('sec_activa').checked = true;
+
+    if (card) card.classList.remove('border-primary');
+    if (titulo) titulo.innerHTML = '<i class="bi bi-plus-circle text-danger me-1"></i>Crear Nueva Sección / Curso';
+    if (btnCancelar) btnCancelar.classList.add('d-none');
+    if (btnSubmit) btnSubmit.innerHTML = '<i class="bi bi-plus-lg me-1"></i>Crear Sección';
+    if (aviso) aviso.classList.add('d-none');
+}
+
+function solicitarEliminarSeccion(urlEliminar, nombre, numUsuarios) {
+    const box = document.getElementById('boxConfirmarEliminarSeccion');
+    const spanNombre = document.getElementById('delSecNombre');
+    const spanAviso = document.getElementById('delSecAvisoUsuarios');
+    const formDel = document.getElementById('formEliminarSeccion');
+
+    formDel.action = urlEliminar;
+    spanNombre.textContent = nombre;
+    if (numUsuarios > 0) {
+        spanAviso.innerHTML = `Hay <strong>${numUsuarios} usuario(s)</strong> asignados a esta sección. Al eliminarla, <strong>no se borrará ninguna cuenta</strong>: pasarán automáticamente a <em>Sin sección</em>.`;
+    } else {
+        spanAviso.textContent = 'Esta sección no tiene usuarios asignados actualmente. ¿Desea eliminarla definitivamente?';
+    }
+    box.classList.remove('d-none');
+}
+
+function cancelarEliminarSeccion() {
+    const box = document.getElementById('boxConfirmarEliminarSeccion');
+    if (box) box.classList.add('d-none');
+}
+
+// Mostrar / ocultar contraseñas, sincronización RUT y selección masiva
+(function() {
+    function enlazarTogglePassword(btnId, inputId, iconId) {
+        const btn = document.getElementById(btnId);
+        const inp = document.getElementById(inputId);
+        const ico = document.getElementById(iconId);
+        if (!btn || !inp) return;
+        btn.addEventListener('click', function() {
+            const esPassword = inp.type === 'password';
+            inp.type = esPassword ? 'text' : 'password';
+            if (ico) ico.className = esPassword ? 'bi bi-eye-slash' : 'bi bi-eye';
+        });
+    }
+
+    enlazarTogglePassword('btnToggleNuevoPassword', 'nuevo_password', 'iconoToggleNuevoPassword');
+    enlazarTogglePassword('btnToggleEditPassword', 'edit_nueva_password', 'iconoToggleEditPassword');
+
+    const pwdInput = document.getElementById('nuevo_password');
+    const chkRutPwd = document.getElementById('chkUsarRutPassword');
+    const rutInput = document.getElementById('nuevo_rut');
+
+    function limpiarRutJS(valor) {
+        return (valor || '').replace(/[^0-9kK]/g, '').toUpperCase();
+    }
+
+    function sincronizarPasswordDesdeRut() {
+        if (!chkRutPwd || !pwdInput || !rutInput) return;
+        if (chkRutPwd.checked) {
+            pwdInput.value = limpiarRutJS(rutInput.value);
+            pwdInput.readOnly = true;
+            pwdInput.classList.add('bg-light');
+        } else {
+            pwdInput.readOnly = false;
+            pwdInput.classList.remove('bg-light');
+            if (!pwdInput.value) {
+                pwdInput.value = 'Inacap2026!';
+            }
+        }
+    }
+
+    if (chkRutPwd && rutInput) {
+        chkRutPwd.addEventListener('change', sincronizarPasswordDesdeRut);
+        rutInput.addEventListener('input', function() {
+            if (chkRutPwd.checked) sincronizarPasswordDesdeRut();
+        });
+    }
+
+    // Selección masiva de usuarios (delegada para sobrevivir al filtrado en vivo)
+    const barraMasiva = document.getElementById('barraAccionMasiva');
+    const contador = document.getElementById('contadorSeleccionados');
+
+    function actualizarBarraMasiva() {
+        const checkAll = document.getElementById('checkAllUsuarios');
+        const rowChecks = Array.from(document.querySelectorAll('.check-usuario-row'));
+        const seleccionados = rowChecks.filter(cb => cb.checked).length;
+        if (contador) contador.textContent = seleccionados;
+        if (barraMasiva) {
+            barraMasiva.classList.toggle('d-none', seleccionados === 0);
+        }
+        if (checkAll && rowChecks.length > 0) {
+            checkAll.checked = seleccionados === rowChecks.length;
+            checkAll.indeterminate = seleccionados > 0 && seleccionados < rowChecks.length;
+        } else if (checkAll) {
+            checkAll.checked = false;
+            checkAll.indeterminate = false;
+        }
+    }
+
+    document.addEventListener('change', function(ev) {
+        if (ev.target && ev.target.id === 'checkAllUsuarios') {
+            const marcado = ev.target.checked;
+            document.querySelectorAll('.check-usuario-row').forEach(cb => { cb.checked = marcado; });
+            actualizarBarraMasiva();
+        } else if (ev.target && ev.target.classList && ev.target.classList.contains('check-usuario-row')) {
+            actualizarBarraMasiva();
+        }
+    });
+
+    document.addEventListener('cesfam:live-filter-updated', actualizarBarraMasiva);
+
+    // Validación rápida en cliente para archivo de importación
+    const fileInput = document.getElementById('inputArchivoCurso');
+    const errCliente = document.getElementById('errorClienteArchivo');
+    const formImport = document.getElementById('formImportarCurso');
+
+    function validarArchivoCliente() {
+        if (!fileInput || !fileInput.files || !fileInput.files.length) return true;
+        const archivo = fileInput.files[0];
+        const nombre = (archivo.name || '').toLowerCase();
+        const extValida = nombre.endsWith('.csv') || nombre.endsWith('.xlsx');
+        let msg = '';
+        if (!extValida) {
+            msg = 'Solo se permiten archivos con extensión .csv o .xlsx.';
+        } else if (archivo.size === 0) {
+            msg = 'El archivo seleccionado está vacío.';
+        } else if (archivo.size > 2 * 1024 * 1024) {
+            msg = 'El archivo supera el límite máximo de 2 MB.';
+        }
+        if (errCliente) {
+            errCliente.textContent = msg;
+            errCliente.classList.toggle('d-none', !msg);
+        }
+        return !msg;
+    }
+
+    if (fileInput) {
+        fileInput.addEventListener('change', validarArchivoCliente);
+    }
+    if (formImport) {
+        formImport.addEventListener('submit', function(ev) {
+            if (!validarArchivoCliente()) {
+                ev.preventDefault();
+            }
+        });
+    }
+
+    // Reabrir modal Gestionar Secciones automáticamente tras crear/editar/eliminar
+    {% if abrir_modal_secciones %}
+    document.addEventListener('DOMContentLoaded', function() {
+        const modalEl = document.getElementById('modalGestionarSecciones');
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            new bootstrap.Modal(modalEl).show();
+        }
+    });
+    {% endif %}
+})();
+
+function enviarAccionMasiva(tipo) {
+    const seleccionados = document.querySelectorAll('.check-usuario-row:checked').length;
+    if (seleccionados === 0) return;
+    const etiquetas = {
+        cambiar_rol: `¿Confirmar cambio de rol para ${seleccionados} cuenta(s) seleccionada(s)?`,
+        activar: `¿Activar ${seleccionados} cuenta(s) seleccionada(s)?`,
+        desactivar: `¿Desactivar ${seleccionados} cuenta(s) seleccionada(s)? No podrán iniciar sesión hasta reactivarlas.`
+    };
+    if (!confirm(etiquetas[tipo] || '¿Aplicar acción masiva?')) return;
+    document.getElementById('inputTipoMasivo').value = tipo;
+    document.getElementById('formAccionMasiva').submit();
 }
 </script>
 {% endif %}

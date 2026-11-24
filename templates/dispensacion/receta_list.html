@@ -7,17 +7,17 @@
             <h4 class="fw-bolder mb-0"><i class="bi bi-file-earmark-medical text-danger me-2"></i>Recetas Médicas</h4>
             <p class="text-muted small mb-0">Prescripciones médicas registradas en el establecimiento</p>
         </div>
-        <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="page-header-actions">
             {% if user.rol == 'quimico' or user.rol == 'tecnico' %}
             <a href="{% url 'dispensacion:dispensar' %}" class="btn btn-outline-dark btn-sm">
                 <i class="bi bi-clipboard2-check me-1"></i>Ventanilla
             </a>
             {% endif %}
             <a href="{% url 'dispensacion:historial' %}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-clock-history me-1"></i>Historial Entregas
+                <i class="bi bi-clock-history me-1"></i>Historial
             </a>
             <a href="{% url 'dispensacion:receta_crear' %}" class="btn btn-cesfam btn-sm">
-                <i class="bi bi-plus-circle me-1"></i>Nueva Receta
+                <i class="bi bi-plus-circle me-1"></i>+ Nueva Receta
             </a>
         </div>
     </div>
@@ -73,11 +73,11 @@
                     <tbody>
                         {% for r in recetas %}
                         <tr class="{% if r.esta_vencida %}table-danger{% endif %}">
-                            <td><strong><code>{{ r.numero_receta }}</code></strong></td>
+                            <td class="whitespace-nowrap text-nowrap"><strong><code>{{ r.numero_receta }}</code></strong></td>
                             <td>{{ r.paciente.nombre_completo }}</td>
                             <td>{{ r.medico }}</td>
-                            <td>{{ r.get_tipo_display }}</td>
-                            <td>{{ r.fecha_emision|date:"d/m/Y" }}</td>
+                            <td class="whitespace-nowrap text-nowrap">{{ r.get_tipo_display }}</td>
+                            <td class="whitespace-nowrap text-nowrap">{{ r.fecha_emision|date:"d/m/Y" }}</td>
                             <td>
                                 {% if r.esta_vencida %}
                                 <span class="badge bg-danger">Vencida</span>

@@ -3,35 +3,34 @@
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
     <div>
-        <div class="d-flex align-items-center gap-2">
-            <h4 class="fw-bolder mb-0"><i class="bi bi-truck text-danger me-2"></i>Órdenes de Abastecimiento &amp; Remesas CENABAST</h4>
-        </div>
+        <h4 class="fw-bolder mb-0"><i class="bi bi-truck text-danger me-2"></i>Órdenes de Abastecimiento &amp; Remesas CENABAST</h4>
         <p class="text-muted small mb-0 mt-1">
             {% if user.rol == 'tecnico' %}
-            Confección manual de solicitudes multi-ítem, propuestas automáticas por quiebre y recepción en Bodega Central
+            Solicitudes de reposición, propuestas automáticas por quiebre y recepción en Bodega Central
             {% else %}
-            Confección manual de órdenes multi-ítem (existentes o fármacos nuevos), propuestas automáticas editables y recepción en Bodega Central
+            Órdenes de abastecimiento multi-ítem, visación Q.F. y recepción de remesas en Bodega Central
             {% endif %}
         </p>
     </div>
-    <div class="d-flex flex-wrap gap-2">
-        <button type="button" class="btn btn-cesfam btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevaOrdenManual">
-            <i class="bi bi-file-earmark-plus-fill me-1"></i>{% if user.rol == 'tecnico' %}Confeccionar Solicitud Manual{% else %}Confeccionar Orden Manual (Catálogo o Nuevo Fármaco){% endif %}
-        </button>
-        <a href="{% url 'farmacia:generar_orden_automatica' %}" class="btn btn-outline-dark fw-bold btn-sm">
-            <i class="bi bi-lightning-charge-fill text-warning me-1"></i>Generar Propuesta Automática por Quiebre
+    <div class="page-header-actions">
+        <a href="{% url 'farmacia:generar_orden_automatica' %}" class="btn btn-outline-dark fw-semibold btn-sm">
+            <i class="bi bi-lightning-charge-fill text-warning me-1"></i>Propuesta Automática
         </a>
+        <button type="button" class="btn btn-cesfam btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevaOrdenManual">
+            <i class="bi bi-plus-circle me-1"></i>{% if user.rol == 'tecnico' %}+ Nueva Solicitud{% else %}+ Nueva Orden{% endif %}
+        </button>
     </div>
 </div>
 
-<!-- Alerta Proactiva informativa si existen medicamentos en Quiebre de Stock -->
+<!-- Alerta compacta de quiebre de stock en una sola línea -->
 {% if medicamentos_quiebre %}
-<div class="alert alert-danger border-danger shadow-sm mb-4">
-    <h6 class="fw-bolder mb-1"><i class="bi bi-exclamation-octagon-fill me-2"></i>Alerta de Quiebre de Stock Detectado ({{ medicamentos_quiebre|length }} fármaco(s) bajo mínimo)</h6>
-    <div class="small">
-        Fármacos afectados:
+<div class="alert alert-danger border-danger-subtle py-2 px-3 mb-3 d-flex flex-wrap align-items-center gap-2 small">
+    <span class="fw-bold text-nowrap">
+        <i class="bi bi-exclamation-octagon-fill me-1"></i>Quiebre de Stock ({{ medicamentos_quiebre|length }}):
+    </span>
+    <div class="d-flex flex-wrap align-items-center gap-1">
         {% for m in medicamentos_quiebre %}
-        <span class="badge bg-danger ms-1">{{ m.nombre_generico }} (Stock: {{ m.stock_total }} / Mín: {{ m.stock_minimo }})</span>
+        <span class="badge bg-danger whitespace-nowrap text-nowrap">{{ m.nombre_generico }} ({{ m.stock_total }}/{{ m.stock_minimo }})</span>
         {% endfor %}
     </div>
 </div>
@@ -40,7 +39,7 @@
 <!-- Pestañas de Estado + Tabla de Órdenes de Abastecimiento -->
 <div class="card shadow-sm border-0">
     <div class="card-header bg-white pt-3 pb-0 border-bottom">
-        <ul class="nav nav-tabs card-header-tabs flex-nowrap overflow-auto">
+        <ul class="nav nav-tabs card-header-tabs flex-nowrap">
             <li class="nav-item">
                 <a class="nav-link text-nowrap {% if filtro == 'todas' %}active fw-bold text-dark{% else %}text-muted{% endif %}"
                    href="{% url 'farmacia:orden_list' %}?filtro=todas">

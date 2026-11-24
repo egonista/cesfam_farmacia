@@ -55,14 +55,14 @@
                 <i class="bi bi-trash3 me-1"></i>{% if tiene_historial %}Desactivar{% else %}Eliminar{% endif %}
             </button>
             {% endif %}
-            <!-- Botón Consumo (Exclusivo Personal Clínico y supervisión Q.F.; bloqueado para Admin y Técnico) -->
-            {% if user.rol == 'clinico' or user.rol == 'quimico' %}
+            <!-- Botón Consumo (Personal Clínico, supervisión Q.F. y Administrador Docente) -->
+            {% if user.rol == 'admin' or user.rol == 'clinico' or user.rol == 'quimico' %}
             <button type="button" class="btn btn-warning text-dark fw-bold" data-bs-toggle="modal" data-bs-target="#modalConsumo">
                 <i class="bi bi-lightning-charge-fill me-1"></i>Registrar Consumo Emergencia
             </button>
             {% endif %}
-            <!-- Botón Reposición (Exclusivo Técnico en Farmacia y Químico Farmacéutico) -->
-            {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
+            <!-- Botón Reposición (Técnico en Farmacia, Químico Farmacéutico y Administrador Docente) -->
+            {% if user.rol == 'admin' or user.rol == 'tecnico' or user.rol == 'quimico' %}
                 {% if items_faltantes %}
                 <button type="button" class="btn btn-success fw-bold" data-bs-toggle="modal" data-bs-target="#modalReposicion">
                     <i class="bi bi-arrow-repeat me-1"></i>Reponer y Sellar Carro
@@ -153,7 +153,7 @@
                             {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
                             <td class="text-end whitespace-nowrap text-nowrap">
                                 <div class="d-inline-flex align-items-center gap-1">
-                                    {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
+                                    {% if user.rol == 'admin' or user.rol == 'tecnico' or user.rol == 'quimico' %}
                                         {% if it.faltante > 0 %}
                                         <button type="button" class="btn btn-sm btn-success fw-semibold"
                                                 onclick="abrirReposicionParaItem('{{ it.pk }}')">

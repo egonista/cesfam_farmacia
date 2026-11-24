@@ -58,39 +58,42 @@
             </form>
 
             <!-- Botones de Acceso Rápido en 1-Clic para Simulación Docente / Defensa INACAP -->
-            {% if modo_simulacion_docente %}
+            {% if mostrar_acceso_rapido or modo_simulacion_docente %}
             <div class="mt-4 pt-3 border-top" style="border-color: #27272A !important;">
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <span class="small fw-bold" style="color: #D4D4D8; font-size: 0.78rem;">
-                        <i class="bi bi-stars text-danger me-1"></i>Acceso Rápido 1-Clic (Simulación / Defensa):
+                        <i class="bi bi-stars text-danger me-1"></i>Acceso Rápido 1-Clic (Simulación / Presentación):
                     </span>
                 </div>
-                <div class="row g-2">
-                    <div class="col-6">
-                        <a href="{% url 'core:simular_rol' 'admin' %}" class="quick-role-card">
-                            <span class="fw-bolder text-white" style="font-size: 0.8rem;">Administrador</span>
-                            <span class="font-monospace" style="font-size: 0.72rem; color: #A1A1AA;">admin (Egon Muñoz)</span>
-                        </a>
+                <form method="post" action="{% url 'core:login' %}">
+                    {% csrf_token %}
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <button type="submit" name="acceso_rapido_rol" value="admin" class="quick-role-card w-100 text-start">
+                                <span class="fw-bolder text-white" style="font-size: 0.8rem;">Administrador</span>
+                                <span class="font-monospace" style="font-size: 0.72rem; color: #A1A1AA;">admin (Egon Muñoz)</span>
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <button type="submit" name="acceso_rapido_rol" value="quimico" class="quick-role-card qf-highlight w-100 text-start">
+                                <span class="fw-bolder text-white" style="font-size: 0.8rem;">Químico Farm.</span>
+                                <span class="font-monospace" style="font-size: 0.72rem; color: #FCA5A5;">qf_suazo (Renato Suazo)</span>
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <button type="submit" name="acceso_rapido_rol" value="tecnico" class="quick-role-card w-100 text-start">
+                                <span class="fw-bolder text-white" style="font-size: 0.8rem;">Técnico Farmacia</span>
+                                <span class="font-monospace" style="font-size: 0.72rem; color: #A1A1AA;">tecnico_alvarez</span>
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <button type="submit" name="acceso_rapido_rol" value="clinico" class="quick-role-card w-100 text-start">
+                                <span class="fw-bolder text-white" style="font-size: 0.8rem;">Personal Clínico</span>
+                                <span class="font-monospace" style="font-size: 0.72rem; color: #A1A1AA;">enfermera_gonzalez</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="col-6">
-                        <a href="{% url 'core:simular_rol' 'quimico' %}" class="quick-role-card qf-highlight">
-                            <span class="fw-bolder text-white" style="font-size: 0.8rem;">Químico Farm.</span>
-                            <span class="font-monospace" style="font-size: 0.72rem; color: #FCA5A5;">qf_suazo (Renato Suazo)</span>
-                        </a>
-                    </div>
-                    <div class="col-6">
-                        <a href="{% url 'core:simular_rol' 'tecnico' %}" class="quick-role-card">
-                            <span class="fw-bolder text-white" style="font-size: 0.8rem;">Técnico Farmacia</span>
-                            <span class="font-monospace" style="font-size: 0.72rem; color: #A1A1AA;">tecnico_alvarez</span>
-                        </a>
-                    </div>
-                    <div class="col-6">
-                        <a href="{% url 'core:simular_rol' 'clinico' %}" class="quick-role-card">
-                            <span class="fw-bolder text-white" style="font-size: 0.8rem;">Personal Clínico</span>
-                            <span class="font-monospace" style="font-size: 0.72rem; color: #A1A1AA;">enfermera_gonzalez</span>
-                        </a>
-                    </div>
-                </div>
+                </form>
             </div>
             {% endif %}
 

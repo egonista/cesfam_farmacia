@@ -1,19 +1,16 @@
 {% extends 'base.html' %}
 {% block title %}Libro de Medicamentos Controlados{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
     <div>
         <h4 class="fw-bolder mb-1"><i class="bi bi-journal-bookmark-fill text-danger me-2"></i>Libro Oficial de Medicamentos Controlados</h4>
-        <p class="text-muted small mb-0">Registro automático de entradas y entregas de psicotrópicos y estupefacientes (ej. Clonazepam, Morfina) supervisado por el Químico Farmacéutico</p>
+        <p class="text-muted small mb-0">Registro oficial foliado de entradas y entregas de psicotrópicos y estupefacientes (D.S. 404/405)</p>
     </div>
-    <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoControlado">
-        <i class="bi bi-plus-circle me-1"></i>+ Registrar Movimiento Manual
-    </button>
-</div>
-
-<div class="alert alert-light border small py-2 mb-3">
-    <i class="bi bi-info-circle-fill text-danger me-1"></i>
-    <strong>¿Cómo funciona este libro?</strong> Cada vez que en la <strong>Ventanilla de Dispensación</strong> se entrega una receta con un medicamento controlado (como Clonazepam), el sistema anota automáticamente una fila aquí con el paciente, la cantidad entregada y el stock que queda.
+    <div class="page-header-actions">
+        <button type="button" class="btn btn-cesfam btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoControlado">
+            <i class="bi bi-plus-circle me-1"></i>+ Movimiento Manual
+        </button>
+    </div>
 </div>
 
 <!-- Tabla Única y Simple de Movimientos de Medicamentos Controlados -->
@@ -42,9 +39,9 @@
                 <tbody>
                     {% for reg in registros %}
                     <tr>
-                        <td><span class="badge bg-dark">#{{ reg.folio }}</span></td>
-                        <td class="small">{{ reg.fecha_registro|date:"d/m/Y H:i" }}</td>
-                        <td>
+                        <td class="whitespace-nowrap text-nowrap"><span class="badge bg-dark">#{{ reg.folio }}</span></td>
+                        <td class="small whitespace-nowrap text-nowrap">{{ reg.fecha_registro|date:"d/m/Y H:i" }}</td>
+                        <td class="whitespace-nowrap text-nowrap">
                             {% if reg.tipo_movimiento == 'ingreso' %}
                             <span class="badge bg-success">Ingreso</span>
                             {% elif reg.tipo_movimiento == 'egreso' %}
@@ -56,19 +53,19 @@
                             {% endif %}
                         </td>
                         <td><strong>{{ reg.medicamento.nombre_generico }}</strong> {{ reg.medicamento.concentracion }}</td>
-                        <td><code>{{ reg.lote.numero_lote }}</code></td>
-                        <td class="fw-bold">{{ reg.cantidad }}</td>
-                        <td>{{ reg.saldo_anterior }}</td>
-                        <td class="fw-bold text-primary">{{ reg.saldo_posterior }}</td>
+                        <td class="whitespace-nowrap text-nowrap"><code>{{ reg.lote.numero_lote }}</code></td>
+                        <td class="fw-bold whitespace-nowrap text-nowrap">{{ reg.cantidad }}</td>
+                        <td class="whitespace-nowrap text-nowrap">{{ reg.saldo_anterior }}</td>
+                        <td class="fw-bold text-primary whitespace-nowrap text-nowrap">{{ reg.saldo_posterior }}</td>
                         <td>
                             {% if reg.paciente %}
                             <strong>{{ reg.paciente.nombre_completo }}</strong>
-                            {% if reg.receta %}<br><small class="text-muted">Receta {{ reg.receta.numero_receta }}</small>{% endif %}
+                            {% if reg.receta %}<br><small class="text-muted whitespace-nowrap text-nowrap">Receta {{ reg.receta.numero_receta }}</small>{% endif %}
                             {% else %}
                             <span class="text-muted small">{{ reg.observaciones|truncatechars:45|default:"Recepción en bodega" }}</span>
                             {% endif %}
                         </td>
-                        <td class="small">{{ reg.quimico_responsable.get_full_name }}</td>
+                        <td class="small whitespace-nowrap text-nowrap">{{ reg.quimico_responsable.get_full_name }}</td>
                     </tr>
                     {% empty %}
                     <tr>

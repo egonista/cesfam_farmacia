@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
 {% block title %}Arsenal Farmacológico{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
     <div>
         <h4 class="fw-bolder mb-0"><i class="bi bi-capsule-pill text-danger me-2"></i>Catálogo de Medicamentos e Insumos Clínicos</h4>
         <p class="text-muted small mb-0 mt-1">Arsenal oficial del establecimiento con clasificación terapéutica, control de stock mínimo y medicamentos controlados</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="page-header-actions">
         {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
         <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-outline-dark btn-sm">
             <i class="bi bi-box-seam me-1"></i>Ingresar Lote FEFO
@@ -14,7 +14,7 @@
         {% endif %}
         {% if user.rol == 'admin' or user.rol == 'quimico' %}
         <button type="button" class="btn btn-cesfam btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoMedicamento">
-            <i class="bi bi-plus-circle me-1"></i>Nuevo Medicamento / Insumo
+            <i class="bi bi-plus-circle me-1"></i>+ Nuevo Medicamento / Insumo
         </button>
         {% endif %}
     </div>
@@ -22,14 +22,25 @@
 
 <div class="card">
     <div class="card-body">
-        <form method="get" class="row g-2 mb-3">
-            <div class="col-md-5"><input type="text" name="q" class="form-control" placeholder="Buscar por código, nombre genérico (DCI) o comercial..." value="{{ query }}"></div>
+        <form method="get" class="row g-2 mb-3 align-items-center" data-live-filter="#liveResultsMedicamentos" data-live-debounce="300">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" name="q" class="form-control" placeholder="Buscar por código, nombre genérico (DCI) o comercial..." value="{{ query }}" autocomplete="off">
+                </div>
+            </div>
             <div class="col-md-3"><select name="categoria" class="form-select"><option value="">Todas las categorías</option>{% for c in categorias %}<option value="{{ c.pk }}" {% if categoria_id == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.nombre }}</option>{% endfor %}</select></div>
-            <div class="col-md-2"><div class="form-check mt-2"><input type="checkbox" name="quiebre" value="1" class="form-check-input" id="quiebre" {% if solo_quiebre %}checked{% endif %}><label class="form-check-label" for="quiebre">Solo quiebre</label></div></div>
-            <div class="col-md-2"><button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-search me-1"></i>Filtrar</button></div>
+            <div class="col-md-auto"><div class="form-check"><input type="checkbox" name="quiebre" value="1" class="form-check-input" id="quiebre" {% if solo_quiebre %}checked{% endif %}><label class="form-check-label text-nowrap" for="quiebre">Solo quiebre</label></div></div>
+            <div class="col-md-auto">
+                <a href="{% url 'farmacia:medicamento_list' %}" data-live-filter-clear
+                   class="btn btn-outline-secondary btn-sm {% if not query and not categoria_id and not solo_quiebre %}d-none{% endif %}" title="Limpiar filtros">
+                    <i class="bi bi-x-lg me-1"></i>Limpiar
+                </a>
+            </div>
         </form>
+        <div id="liveResultsMedicamentos">
         <div class="table-responsive">
-            <table class="table table-cesfam">
+            <table class="table table-cesfam align-middle">
                 <thead>
                     <tr>
                         <th>Código</th>
@@ -68,6 +79,15 @@
                     </td>
                     <td class="whitespace-nowrap text-nowrap">
                         <div class="d-inline-flex flex-nowrap align-items-center gap-1">
+                            {% if user.rol == 'admin' or user.rol == 'quimico' %}
+                            <button type="button" class="btn btn-sm btn-outline-primary whitespace-nowrap text-nowrap"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#modalEditarMedicamento"
+                                    onclick="cargarEdicionMedicamento('{{ m.pk }}', '{{ m.codigo|escapejs }}', '{{ m.nombre_generico|escapejs }}', '{{ m.nombre_comercial|default:''|escapejs }}', '{{ m.concentracion|escapejs }}', '{{ m.forma_farmaceutica|escapejs }}', '{{ m.unidad_medida|escapejs }}', '{{ m.categoria_id }}', '{{ m.stock_minimo }}', '{{ m.stock_maximo }}', {% if m.es_controlado %}true{% else %}false{% endif %})"
+                                    title="Editar ficha técnica del medicamento o insumo">
+                                <i class="bi bi-pencil-square me-1"></i>Editar
+                            </button>
+                            {% endif %}
                             <a href="{% url 'farmacia:medicamento_detalle' m.pk %}" class="btn btn-sm btn-outline-dark whitespace-nowrap text-nowrap" title="Ver lotes FEFO y Kardex">
                                 <i class="bi bi-eye me-1"></i>Lotes FEFO
                             </a>
@@ -91,13 +111,14 @@
                 </tbody>
             </table>
         </div>
+        </div>
     </div>
 </div>
 
-<!-- Modal Crear Nuevo Medicamento / Insumo -->
 {% if user.rol == 'admin' or user.rol == 'quimico' %}
+<!-- Modal Crear Nuevo Medicamento / Insumo (con flujo ágil de Lote Inicial en 1 paso) -->
 <div class="modal fade" id="modalNuevoMedicamento" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
                 <h5 class="modal-title"><i class="bi bi-capsule-pill me-2"></i>Incorporar Medicamento o Insumo al Arsenal</h5>
@@ -105,70 +126,232 @@
             </div>
             <form method="post">
                 {% csrf_token %}
+                <input type="hidden" name="accion" value="crear">
                 <div class="modal-body">
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label">Código Interno CENABAST/APS</label>
-                            <input type="text" name="codigo" class="form-control" placeholder="MED-CARD-005" required>
+                            <label class="form-label fw-semibold">Código Interno <span class="text-danger">*</span></label>
+                            <input type="text" name="codigo" class="form-control" placeholder="Ej: MED-ANT-001 o INS-CLI-003" required>
                         </div>
                         <div class="col-md-8">
-                            <label class="form-label">Nombre Genérico (DCI Oficial)</label>
-                            <input type="text" name="nombre_generico" class="form-control" placeholder="Ej: Atorvastatina Cálcica" required>
+                            <label class="form-label fw-semibold">Nombre Genérico (DCI) <span class="text-danger">*</span></label>
+                            <input type="text" name="nombre_generico" class="form-control" placeholder="Ej: Amoxicilina Trihidrato / Gasa Estéril" required>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Nombre Comercial / Referencia</label>
-                            <input type="text" name="nombre_comercial" class="form-control" placeholder="Lipitor / Genérico CENABAST">
+                            <label class="form-label fw-semibold">Nombre Comercial / Referencia</label>
+                            <input type="text" name="nombre_comercial" class="form-control" placeholder="Genérico CENABAST (opcional)">
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label">Concentración / Dosis</label>
-                            <input type="text" name="concentracion" class="form-control" placeholder="20 mg" required>
+                            <label class="form-label fw-semibold">Concentración <span class="text-danger">*</span></label>
+                            <input type="text" name="concentracion" class="form-control" placeholder="Ej: 500 mg" required>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label">Unidad de Medida</label>
+                            <label class="form-label fw-semibold">Unidad de Medida</label>
                             <select name="unidad_medida" class="form-select">
-                                <option value="comp">Comprimido</option>
-                                <option value="cap">Cápsula</option>
-                                <option value="amp">Ampolla</option>
-                                <option value="frasco">Frasco</option>
-                                <option value="inhalador">Inhalador</option>
-                                <option value="unidad">Unidad / Insumo</option>
+                                {% for val, label in unidades_medida %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Forma Farmacéutica</label>
+                            <label class="form-label fw-semibold">Forma Farmacéutica <span class="text-danger">*</span></label>
                             <input type="text" name="forma_farmaceutica" class="form-control" value="Comprimido recubierto" required>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Categoría Terapéutica</label>
+                            <label class="form-label fw-semibold">Categoría <span class="text-danger">*</span></label>
                             <select name="categoria" class="form-select" required>
                                 {% for c in categorias %}
                                 <option value="{{ c.pk }}">{{ c.nombre }}</option>
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Stock Mínimo (Alerta Quiebre)</label>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Stock Mínimo <span class="text-danger">*</span></label>
                             <input type="number" name="stock_minimo" class="form-control" value="100" min="1" required>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Stock Máximo</label>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Capacidad Máxima <span class="text-danger">*</span></label>
                             <input type="number" name="stock_maximo" class="form-control" value="2000" min="1" required>
                         </div>
-                        <div class="col-md-4 d-flex align-items-end">
+                        <div class="col-md-6 d-flex align-items-end">
                             <div class="form-check mb-2">
                                 <input type="checkbox" name="es_controlado" class="form-check-input" id="chkCtrl">
-                                <label class="form-check-label fw-bold text-danger" for="chkCtrl">Medicamento Controlado (Estupefaciente / Psicotrópico)</label>
+                                <label class="form-check-label fw-bold text-danger" for="chkCtrl">
+                                    Es Medicamento Controlado (D.S. 404/405)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Flujo ágil en 1 paso: Lote / Stock Inicial -->
+                    <hr class="my-3">
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" name="ingresar_lote_inicial" id="chkIngresarLoteInicial">
+                        <label class="form-check-label fw-bold text-dark" for="chkIngresarLoteInicial">
+                            <i class="bi bi-box-seam text-danger me-1"></i>Ingresar lote / stock inicial ahora (1 paso)
+                        </label>
+                    </div>
+                    <div id="panelLoteInicial" class="border rounded p-3 bg-light d-none">
+                        <p class="small text-muted mb-2">
+                            Crea el producto, su primer lote FEFO y el movimiento inicial en el Kardex dentro de una sola transacción.
+                        </p>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small fw-semibold mb-1">N° de Lote <span class="text-danger">*</span></label>
+                                <input type="text" name="numero_lote" class="form-control form-control-sm campo-lote-inicial" placeholder="Ej: CEN-2026-001">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-semibold mb-1">Fecha de Fabricación <span class="text-danger">*</span></label>
+                                <input type="date" name="fecha_fabricacion" class="form-control form-control-sm campo-lote-inicial" value="{{ hoy_iso }}">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-semibold mb-1">Fecha de Vencimiento <span class="text-danger">*</span></label>
+                                <input type="date" name="fecha_vencimiento" class="form-control form-control-sm campo-lote-inicial" value="{{ venc_default_iso }}">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-semibold mb-1">Cantidad Inicial <span class="text-danger">*</span></label>
+                                <input type="number" name="cantidad_inicial" class="form-control form-control-sm campo-lote-inicial" min="1" placeholder="Ej: 200">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small fw-semibold mb-1">Ubicación <span class="text-danger">*</span></label>
+                                <select name="ubicacion_lote" class="form-select form-select-sm campo-lote-inicial">
+                                    {% for u in ubicaciones %}
+                                    <option value="{{ u.pk }}">{{ u.nombre }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small fw-semibold mb-1">Motivo / Guía <span class="text-danger">*</span></label>
+                                <input type="text" name="motivo_lote" class="form-control form-control-sm campo-lote-inicial"
+                                       value="Ingreso inicial al Arsenal / Remesa CENABAST">
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Guardar en Arsenal</button>
+                    <button type="submit" class="btn btn-cesfam">
+                        <i class="bi bi-check-circle me-1"></i>Guardar en Arsenal
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+<!-- Modal Editar Medicamento / Insumo -->
+<div class="modal fade" id="modalEditarMedicamento" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Editar Medicamento o Insumo del Arsenal</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="editar_medicamento">
+                <input type="hidden" name="medicamento_id" id="edit_med_id">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Código Interno <span class="text-danger">*</span></label>
+                            <input type="text" name="codigo" id="edit_med_codigo" class="form-control" required>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label fw-semibold">Nombre Genérico (DCI) <span class="text-danger">*</span></label>
+                            <input type="text" name="nombre_generico" id="edit_med_nombre_generico" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Nombre Comercial / Referencia</label>
+                            <input type="text" name="nombre_comercial" id="edit_med_nombre_comercial" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Concentración <span class="text-danger">*</span></label>
+                            <input type="text" name="concentracion" id="edit_med_concentracion" class="form-control" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Unidad de Medida</label>
+                            <select name="unidad_medida" id="edit_med_unidad_medida" class="form-select">
+                                {% for val, label in unidades_medida %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Forma Farmacéutica <span class="text-danger">*</span></label>
+                            <input type="text" name="forma_farmaceutica" id="edit_med_forma_farmaceutica" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Categoría <span class="text-danger">*</span></label>
+                            <select name="categoria" id="edit_med_categoria" class="form-select" required>
+                                {% for c in categorias %}
+                                <option value="{{ c.pk }}">{{ c.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Stock Mínimo <span class="text-danger">*</span></label>
+                            <input type="number" name="stock_minimo" id="edit_med_stock_minimo" class="form-control" min="1" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Capacidad Máxima <span class="text-danger">*</span></label>
+                            <input type="number" name="stock_maximo" id="edit_med_stock_maximo" class="form-control" min="1" required>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input type="checkbox" name="es_controlado" class="form-check-input" id="edit_med_es_controlado">
+                                <label class="form-check-label fw-bold text-danger" for="edit_med_es_controlado">
+                                    Es Medicamento Controlado (D.S. 404/405)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam">
+                        <i class="bi bi-save me-1"></i>Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function cargarEdicionMedicamento(id, codigo, nombreGenerico, nombreComercial, concentracion, formaFarmaceutica, unidadMedida, categoriaId, stockMinimo, stockMaximo, esControlado) {
+    document.getElementById('edit_med_id').value = id;
+    document.getElementById('edit_med_codigo').value = codigo;
+    document.getElementById('edit_med_nombre_generico').value = nombreGenerico;
+    document.getElementById('edit_med_nombre_comercial').value = nombreComercial;
+    document.getElementById('edit_med_concentracion').value = concentracion;
+    document.getElementById('edit_med_forma_farmaceutica').value = formaFarmaceutica;
+    document.getElementById('edit_med_unidad_medida').value = unidadMedida;
+    document.getElementById('edit_med_categoria').value = categoriaId;
+    document.getElementById('edit_med_stock_minimo').value = stockMinimo;
+    document.getElementById('edit_med_stock_maximo').value = stockMaximo;
+    document.getElementById('edit_med_es_controlado').checked = Boolean(esControlado);
+}
+
+(function() {
+    const chkLote = document.getElementById('chkIngresarLoteInicial');
+    const panelLote = document.getElementById('panelLoteInicial');
+    const camposLote = Array.from(document.querySelectorAll('.campo-lote-inicial'));
+
+    function sincronizarPanelLote() {
+        if (!chkLote || !panelLote) return;
+        const activo = chkLote.checked;
+        panelLote.classList.toggle('d-none', !activo);
+        camposLote.forEach(function(campo) {
+            campo.required = activo;
+        });
+    }
+
+    if (chkLote) {
+        chkLote.addEventListener('change', sincronizarPanelLote);
+        sincronizarPanelLote();
+    }
+})();
+</script>
 {% endif %}
 {% endblock %}

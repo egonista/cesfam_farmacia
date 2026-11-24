@@ -45,6 +45,7 @@ admin_200 = [
     ('/dispensacion/recetas/crear/', 'Nueva Receta'),
     ('/farmacia/medicamentos/', 'Arsenal Farmacológico'),
     ('/farmacia/lotes/', 'Lotes FEFO'),
+    ('/farmacia/movimientos/traspaso/', 'Traspaso Bodega -> Vitrina'),
     ('/farmacia/abastecimiento/', 'Pedidos CENABAST'),
     ('/carros/', 'Carros Clínicos'),
     ('/reportes/', 'Reportes Gerenciales'),
@@ -75,9 +76,11 @@ res_xlsx = client.get('/reportes/exportar/excel/')
 assert res_xlsx.status_code == 200 and len(res_xlsx.content) > 500, "Excel (.xlsx) vacío o fallido"
 res_pdf = client.get('/reportes/exportar/pdf/')
 assert res_pdf.status_code == 200 and res_pdf.content.startswith(b'%PDF'), "PDF inválido o fallido"
+res_bkp = client.get('/auditoria/respaldo-bd/')
+assert res_bkp.status_code == 200 and len(res_bkp.json()) > 0, "Respaldo BD JSON fallido para Admin"
 
-# Bloqueos 403 Admin en operación clínica directa
-for url in ('/controlados/libro/', '/dispensacion/dispensar/', '/farmacia/movimientos/traspaso/'):
+# Bloqueos 403 Admin en operación clínica directa (Controlados ISP y Ventanilla Dispensación)
+for url in ('/controlados/libro/', '/dispensacion/dispensar/'):
     assert client.get(url).status_code == 403, f"Admin debe recibir 403 en {url}"
 
 # /simular-rol/ permitido para Admin real (302)
@@ -117,6 +120,7 @@ assert client.get('/reportes/exportar/pdf/').content.startswith(b'%PDF'), "Q.F. 
 
 for url in (
     '/usuarios/',
+    '/auditoria/respaldo-bd/',
     '/admin-panel/escenarios/',
     '/admin-panel/banco-pacientes/',
     '/simular-rol/tecnico/',

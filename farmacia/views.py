@@ -21,7 +21,7 @@ from core.decorators import rol_requerido, denegar_acceso
 
 @rol_requerido('admin', 'quimico', 'tecnico', 'clinico')
 def medicamento_list(request):
-    """Lista de medicamentos con búsqueda, filtros y creación (RF-03)."""
+    """Lista de medicamentos con búsqueda, filtros, edición y alta ágil con lote inicial en 1 paso (RF-03)."""
     if request.method == 'POST':
         if request.user.rol not in ('admin', 'quimico'):
             return denegar_acceso(
@@ -29,29 +29,219 @@ def medicamento_list(request):
                 motivo='Solo el Administrador y el Químico Farmacéutico pueden incorporar nuevos medicamentos o modificar el catálogo base.',
                 roles_autorizados=('admin', 'quimico')
             )
-        try:
-            cat = CategoriaMedicamento.objects.get(pk=request.POST.get('categoria'))
-            es_ctrl = request.POST.get('es_controlado') == 'on' or cat.es_controlado
-            med = Medicamento.objects.create(
-                codigo=request.POST.get('codigo', '').strip().upper(),
-                nombre_generico=request.POST.get('nombre_generico', '').strip(),
-                nombre_comercial=request.POST.get('nombre_comercial', '').strip(),
-                concentracion=request.POST.get('concentracion', '').strip(),
-                forma_farmaceutica=request.POST.get('forma_farmaceutica', 'Comprimido').strip(),
-                unidad_medida=request.POST.get('unidad_medida', 'comp'),
-                categoria=cat,
-                stock_minimo=int(request.POST.get('stock_minimo', 50)),
-                stock_maximo=int(request.POST.get('stock_maximo', 1000)),
-                es_controlado=es_ctrl,
-            )
-            registrar_auditoria(
-                request.user,
-                'Registro de Medicamento / Insumo en Arsenal (RF-03)',
-                f'{med.codigo} - {med.nombre_generico}',
-                valores_nuevos={'codigo': med.codigo, 'nombre': med.nombre_generico, 'controlado': med.es_controlado}
-            )
-            messages.success(request, f'Medicamento {med.nombre_generico} ({med.codigo}) registrado en el arsenal.')
+
+        accion = request.POST.get('accion', 'crear').strip()
+
+        if accion == 'editar_medicamento':
+            try:
+                med = get_object_or_404(Medicamento, pk=request.POST.get('medicamento_id'))
+                codigo = request.POST.get('codigo', '').strip().upper()
+                nombre_generico = request.POST.get('nombre_generico', '').strip()
+                nombre_comercial = request.POST.get('nombre_comercial', '').strip()
+                concentracion = request.POST.get('concentracion', '').strip()
+                forma_farmaceutica = request.POST.get('forma_farmaceutica', '').strip()
+                unidad_medida = request.POST.get('unidad_medida', med.unidad_medida).strip()
+                stock_minimo = int(request.POST.get('stock_minimo', 0) or 0)
+                stock_maximo = int(request.POST.get('stock_maximo', 0) or 0)
+                cat = get_object_or_404(CategoriaMedicamento, pk=request.POST.get('categoria'))
+
+                if not codigo or not nombre_generico or not concentracion or not forma_farmaceutica:
+                    raise ValueError('Complete los campos obligatorios: Código, Nombre Genérico, Concentración y Forma Farmacéutica.')
+                if Medicamento.objects.exclude(pk=med.pk).filter(codigo__iexact=codigo).exists():
+                    raise ValueError(f'Ya existe otro medicamento o insumo con el código interno "{codigo}".')
+                if stock_minimo <= 0 or stock_maximo < stock_minimo:
+                    raise ValueError('El stock mínimo debe ser mayor a 0 y la capacidad máxima debe ser mayor o igual al stock mínimo.')
+                if unidad_medida not in dict(Medicamento.UnidadMedida.choices):
+                    unidad_medida = med.unidad_medida
+
+                es_ctrl = request.POST.get('es_controlado') == 'on'
+                ant = {
+                    'codigo': med.codigo,
+                    'nombre': med.nombre_generico,
+                    'concentracion': med.concentracion,
+                    'categoria': med.categoria.nombre,
+                    'stock_minimo': med.stock_minimo,
+                    'stock_maximo': med.stock_maximo,
+                    'controlado': med.es_controlado,
+                }
+                med.codigo = codigo
+                med.nombre_generico = nombre_generico
+                med.nombre_comercial = nombre_comercial
+                med.concentracion = concentracion
+                med.forma_farmaceutica = forma_farmaceutica
+                med.unidad_medida = unidad_medida
+                med.categoria = cat
+                med.stock_minimo = stock_minimo
+                med.stock_maximo = stock_maximo
+                med.es_controlado = es_ctrl
+                med.save()
+
+                registrar_auditoria(
+                    request.user,
+                    'Edición de Medicamento / Insumo en Arsenal (RF-03)',
+                    f'{med.codigo} - {med.nombre_generico}',
+                    valores_anteriores=ant,
+                    valores_nuevos={
+                        'codigo': med.codigo,
+                        'nombre': med.nombre_generico,
+                        'concentracion': med.concentracion,
+                        'categoria': med.categoria.nombre,
+                        'stock_minimo': med.stock_minimo,
+                        'stock_maximo': med.stock_maximo,
+                        'controlado': med.es_controlado,
+                    }
+                )
+                messages.success(request, f'Ficha de {med.nombre_generico} ({med.codigo}) actualizada correctamente.')
+                return redirect('farmacia:medicamento_list')
+            except ValueError as ve:
+                messages.error(request, str(ve))
+            except Exception as e:
+                messages.error(request, f'Error al editar medicamento: {e}')
             return redirect('farmacia:medicamento_list')
+
+        # Alta de nuevo medicamento / insumo (con opción atómica de lote inicial en 1 paso)
+        try:
+            with transaction.atomic():
+                codigo = request.POST.get('codigo', '').strip().upper()
+                nombre_generico = request.POST.get('nombre_generico', '').strip()
+                nombre_comercial = request.POST.get('nombre_comercial', '').strip()
+                concentracion = request.POST.get('concentracion', '').strip()
+                forma_farmaceutica = request.POST.get('forma_farmaceutica', 'Comprimido').strip()
+                unidad_medida = request.POST.get('unidad_medida', 'comp').strip()
+                stock_minimo = int(request.POST.get('stock_minimo', 0) or 0)
+                stock_maximo = int(request.POST.get('stock_maximo', 0) or 0)
+                cat = get_object_or_404(CategoriaMedicamento, pk=request.POST.get('categoria'))
+
+                if not codigo or not nombre_generico or not concentracion or not forma_farmaceutica:
+                    raise ValueError('Complete los campos obligatorios: Código Interno, Nombre Genérico (DCI), Concentración y Forma Farmacéutica.')
+                if Medicamento.objects.filter(codigo__iexact=codigo).exists():
+                    raise ValueError(f'El código interno "{codigo}" ya se encuentra registrado en el Arsenal.')
+                if stock_minimo <= 0 or stock_maximo < stock_minimo:
+                    raise ValueError('El stock mínimo debe ser mayor a 0 y la capacidad máxima debe ser mayor o igual al stock mínimo.')
+                if unidad_medida not in dict(Medicamento.UnidadMedida.choices):
+                    unidad_medida = Medicamento.UnidadMedida.COMPRIMIDO
+
+                es_ctrl = request.POST.get('es_controlado') == 'on' or cat.es_controlado
+                med = Medicamento.objects.create(
+                    codigo=codigo,
+                    nombre_generico=nombre_generico,
+                    nombre_comercial=nombre_comercial,
+                    concentracion=concentracion,
+                    forma_farmaceutica=forma_farmaceutica,
+                    unidad_medida=unidad_medida,
+                    categoria=cat,
+                    stock_minimo=stock_minimo,
+                    stock_maximo=stock_maximo,
+                    es_controlado=es_ctrl,
+                )
+
+                ingresar_lote = request.POST.get('ingresar_lote_inicial') == 'on'
+                if ingresar_lote:
+                    numero_lote = request.POST.get('numero_lote', '').strip()
+                    fecha_fab_str = request.POST.get('fecha_fabricacion', '').strip()
+                    fecha_venc_str = request.POST.get('fecha_vencimiento', '').strip()
+                    cantidad_inicial = int(request.POST.get('cantidad_inicial', 0) or 0)
+                    ubicacion_id_lote = request.POST.get('ubicacion_lote', '').strip()
+                    motivo_lote = (
+                        request.POST.get('motivo_lote', '').strip()
+                        or 'Ingreso inicial al Arsenal / Remesa CENABAST'
+                    )
+                    proveedor_lote = request.POST.get('proveedor_lote', '').strip() or 'CENABAST'
+
+                    if not numero_lote:
+                        raise ValueError('Para ingresar stock inicial debe indicar el N° de Lote.')
+                    if cantidad_inicial <= 0:
+                        raise ValueError('La cantidad inicial del lote debe ser mayor a cero.')
+                    if not fecha_fab_str or not fecha_venc_str:
+                        raise ValueError('Debe indicar la Fecha de Fabricación y la Fecha de Vencimiento del lote inicial.')
+                    if not ubicacion_id_lote:
+                        raise ValueError('Debe seleccionar una Ubicación (Bodega o Vitrina) para el lote inicial.')
+
+                    ubicacion = get_object_or_404(Ubicacion, pk=ubicacion_id_lote, activa=True)
+                    fecha_fab = date.fromisoformat(fecha_fab_str)
+                    fecha_venc = date.fromisoformat(fecha_venc_str)
+                    hoy = date.today()
+
+                    if fecha_venc <= fecha_fab:
+                        raise ValueError('La fecha de vencimiento del lote inicial debe ser posterior a la fecha de fabricación.')
+                    if fecha_venc < hoy and ubicacion.tipo == Ubicacion.TipoUbicacion.VITRINA:
+                        raise ValueError(
+                            f'No se puede ingresar un lote ya vencido ({fecha_venc.strftime("%d/%m/%Y")}) directamente en {ubicacion.nombre}.'
+                        )
+
+                    lote = Lote.objects.create(
+                        medicamento=med,
+                        numero_lote=numero_lote,
+                        fecha_fabricacion=fecha_fab,
+                        fecha_vencimiento=fecha_venc,
+                        cantidad_inicial=cantidad_inicial,
+                        cantidad_actual=cantidad_inicial,
+                        ubicacion=ubicacion,
+                        proveedor=proveedor_lote,
+                    )
+
+                    MovimientoStock.objects.create(
+                        lote=lote,
+                        tipo=MovimientoStock.TipoMovimiento.INGRESO,
+                        cantidad=cantidad_inicial,
+                        cantidad_anterior=0,
+                        cantidad_posterior=cantidad_inicial,
+                        motivo=f'Ingreso inicial al Arsenal — Lote {lote.numero_lote}: {motivo_lote}',
+                        usuario=request.user,
+                        ubicacion_destino=ubicacion,
+                    )
+
+                    if med.es_controlado:
+                        from controlados.models import LibroControlados
+                        LibroControlados.objects.create(
+                            folio=LibroControlados.siguiente_folio(),
+                            medicamento=med,
+                            lote=lote,
+                            tipo_movimiento=LibroControlados.TipoMovimiento.INGRESO,
+                            cantidad=cantidad_inicial,
+                            saldo_anterior=0,
+                            saldo_posterior=cantidad_inicial,
+                            quimico_responsable=request.user,
+                            verificacion_2fa=True,
+                            observaciones=f'Ingreso inicial desde Arsenal — Lote {lote.numero_lote}: {motivo_lote}',
+                        )
+
+                    registrar_auditoria(
+                        request.user,
+                        'Registro de Medicamento / Insumo en Arsenal con Lote Inicial (RF-03)',
+                        f'{med.codigo} - {med.nombre_generico} (Lote {lote.numero_lote})',
+                        valores_nuevos={
+                            'codigo': med.codigo,
+                            'nombre': med.nombre_generico,
+                            'concentracion': med.concentracion,
+                            'controlado': med.es_controlado,
+                            'lote_inicial': lote.numero_lote,
+                            'cantidad_inicial': cantidad_inicial,
+                            'ubicacion': ubicacion.nombre,
+                            'motivo': motivo_lote,
+                        }
+                    )
+                    messages.success(
+                        request,
+                        f'{med.nombre_generico} ({med.codigo}) registrado en el Arsenal junto con el lote FEFO '
+                        f'"{lote.numero_lote}" ({cantidad_inicial} unid. en {ubicacion.nombre}) y movimiento inicial en Kardex.'
+                    )
+                else:
+                    registrar_auditoria(
+                        request.user,
+                        'Registro de Medicamento / Insumo en Arsenal (RF-03)',
+                        f'{med.codigo} - {med.nombre_generico}',
+                        valores_nuevos={
+                            'codigo': med.codigo,
+                            'nombre': med.nombre_generico,
+                            'concentracion': med.concentracion,
+                            'controlado': med.es_controlado,
+                        }
+                    )
+                    messages.success(request, f'Medicamento {med.nombre_generico} ({med.codigo}) registrado en el arsenal.')
+                return redirect('farmacia:medicamento_list')
+        except ValueError as ve:
+            messages.error(request, str(ve))
         except Exception as e:
             messages.error(request, f'Error al registrar medicamento: {e}')
 
@@ -76,10 +266,16 @@ def medicamento_list(request):
         medicamentos_list = [m for m in medicamentos_list if m.en_quiebre]
 
     categorias = CategoriaMedicamento.objects.all()
+    ubicaciones = Ubicacion.objects.filter(activa=True).order_by('tipo', 'nombre')
+    hoy = date.today()
 
     return render(request, 'farmacia/medicamento_list.html', {
         'medicamentos': medicamentos_list,
         'categorias': categorias,
+        'ubicaciones': ubicaciones,
+        'unidades_medida': Medicamento.UnidadMedida.choices,
+        'hoy_iso': hoy.isoformat(),
+        'venc_default_iso': (hoy + timedelta(days=365)).isoformat(),
         'query': query,
         'categoria_id': categoria_id,
         'solo_quiebre': solo_quiebre,
@@ -253,8 +449,8 @@ def lote_list(request):
 
 
 @rol_requerido(
-    'quimico',
-    motivo='Solo el Químico Farmacéutico está autorizado para retirar lotes vencidos de bodega/vitrina y darlos de baja en Cuarentena.'
+    'admin', 'quimico',
+    motivo='Solo el Químico Farmacéutico o el Administrador (Docente) están autorizados para retirar lotes vencidos de bodega/vitrina y darlos de baja en Cuarentena.'
 )
 @transaction.atomic
 def lote_cuarentena(request, pk):
@@ -419,7 +615,7 @@ def lote_crear(request):
                 ubicacion_destino=ubicacion,
             )
 
-            if medicamento.es_controlado and request.user.rol == 'quimico':
+            if medicamento.es_controlado and request.user.rol in ('quimico', 'admin'):
                 from controlados.models import LibroControlados
                 LibroControlados.objects.create(
                     folio=LibroControlados.siguiente_folio(),
@@ -431,7 +627,7 @@ def lote_crear(request):
                     saldo_posterior=cantidad,
                     quimico_responsable=request.user,
                     verificacion_2fa=True,
-                    observaciones=f'Ingreso manual Q.F. lote {lote.numero_lote} — {motivo_ingreso}',
+                    observaciones=f'Ingreso manual ({request.user.get_rol_display()}) lote {lote.numero_lote} — {motivo_ingreso}',
                 )
 
             registrar_auditoria(
@@ -481,8 +677,8 @@ def movimiento_list(request):
 
 
 @rol_requerido(
-    'quimico', 'tecnico',
-    motivo='Los traslados operativos entre Bodega y Vitrina solo pueden ser ejecutados por el Técnico en Farmacia o el Químico Farmacéutico.'
+    'admin', 'quimico', 'tecnico',
+    motivo='Los traslados operativos entre Bodega y Vitrina solo pueden ser ejecutados por el Técnico en Farmacia, el Químico Farmacéutico o el Administrador (Docente).'
 )
 @transaction.atomic
 def traspaso(request):

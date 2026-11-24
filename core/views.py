@@ -2,27 +2,38 @@
 Vistas del módulo Core del Sistema CESFAM Farmacia.
 Dashboard, autenticación, gestión de pacientes.
 """
+import csv
+import io
 import json
+import os
+import re
+import unicodedata
+import zipfile
 from datetime import date, timedelta
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.hashers import make_password
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Count, Sum, Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .models import (
-    Paciente, MedicoPrescriptor, Usuario, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
+    SeccionCurso, Paciente, MedicoPrescriptor, Usuario, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
 )
 from .utils import (
     validar_rut,
     formatear_rut,
+    limpiar_rut,
     registrar_auditoria,
     obtener_rol_efectivo,
     obtener_filtro_escenario,
@@ -35,18 +46,34 @@ from carros_clinicos.models import CarroClinico
 
 
 def login_view(request):
-    """Vista de inicio de sesión (acepta username o correo institucional)."""
+    """Vista de inicio de sesión (acepta username o correo institucional + acceso rápido en presentación)."""
     if request.user.is_authenticated:
         return redirect('core:dashboard')
 
+    mostrar_acceso_rapido = bool(
+        getattr(settings, 'DEBUG', False)
+        or getattr(settings, 'MODO_SIMULACION_DOCENTE', False)
+    )
+
     if request.method == 'POST':
-        identificador = request.POST.get('username', '').strip()
-        password = request.POST.get('password', '')
-        user = authenticate(request, username=identificador, password=password)
-        if user is None and '@' in identificador:
-            u_obj = Usuario.objects.filter(email__iexact=identificador).first()
-            if u_obj:
-                user = authenticate(request, username=u_obj.username, password=password)
+        acceso_rapido_rol = request.POST.get('acceso_rapido_rol', '').strip()
+        if acceso_rapido_rol and mostrar_acceso_rapido:
+            mapa_demo = {
+                'admin': 'admin',
+                'quimico': 'qf_suazo',
+                'tecnico': 'tecnico_alvarez',
+                'clinico': 'enfermera_gonzalez',
+            }
+            uname_demo = mapa_demo.get(acceso_rapido_rol)
+            user = Usuario.objects.filter(username=uname_demo, is_active=True).first() if uname_demo else None
+        else:
+            identificador = request.POST.get('username', '').strip()
+            password = request.POST.get('password', '')
+            user = authenticate(request, username=identificador, password=password)
+            if user is None and '@' in identificador:
+                u_obj = Usuario.objects.filter(email__iexact=identificador).first()
+                if u_obj:
+                    user = authenticate(request, username=u_obj.username, password=password)
         if user is not None:
             login(request, user)
             request.session['rol_simulado'] = user.rol
@@ -65,9 +92,21 @@ def login_view(request):
             messages.success(request, f'¡Bienvenido/a, {user.get_full_name()} ({user.get_rol_display()})!')
             return redirect('core:dashboard')
         else:
-            messages.error(request, 'Credenciales inválidas. Verifique usuario y contraseña.')
+            cuenta_inactiva = False
+            if not acceso_rapido_rol and identificador and password:
+                cand = Usuario.objects.filter(
+                    Q(username__iexact=identificador) | Q(email__iexact=identificador)
+                ).first()
+                if cand and not cand.is_active and cand.check_password(password):
+                    cuenta_inactiva = True
+            if cuenta_inactiva:
+                messages.error(request, 'Esta cuenta se encuentra desactivada. Contacte al Administrador (Docente).')
+            else:
+                messages.error(request, 'Credenciales inválidas. Verifique usuario y contraseña.')
 
-    return render(request, 'registration/login.html')
+    return render(request, 'registration/login.html', {
+        'mostrar_acceso_rapido': mostrar_acceso_rapido,
+    })
 
 
 def simular_rol(request, rol_key):
@@ -113,16 +152,19 @@ def simular_rol(request, rol_key):
                 request.session['is_real_admin'] = True
                 if orig_admin_id:
                     request.session['original_admin_id'] = orig_admin_id
-            messages.info(
-                request,
-                f'Vista de simulación activa: {user.get_full_name()} — Perfil: {user.get_rol_display()}'
-            )
+            if user.rol != Usuario.Rol.ADMINISTRADOR:
+                messages.info(
+                    request,
+                    f'Vista de simulación activa: {user.get_full_name()} — Perfil: {user.get_rol_display()}'
+                )
     return redirect('core:dashboard')
 
 
 def logout_view(request):
-    """Cierra la sesión del usuario."""
+    """Cierra la sesión del usuario limpiando cualquier variable de simulación de rol."""
     if request.method == 'POST':
+        for key in ('rol_simulado', 'is_real_admin', 'original_admin_id'):
+            request.session.pop(key, None)
         logout(request)
         messages.info(request, 'Sesión cerrada correctamente.')
     return redirect('core:login')
@@ -554,8 +596,9 @@ def api_validar_rut(request):
 )
 def auditoria_list(request):
     """Visor de la Bitácora de Auditoría (Exclusivo Dirección Técnica Q.F. y Administrador)."""
-    rol_filtro = request.GET.get('rol', '')
-    q = request.GET.get('q', '')
+    rol_filtro = request.GET.get('rol', '').strip()
+    q = request.GET.get('q', '').strip()
+    fecha_filtro = request.GET.get('fecha', '').strip()
     registros = AuditoriaInmutable.objects.all()
     if rol_filtro:
         registros = registros.filter(rol=rol_filtro)
@@ -565,12 +608,260 @@ def auditoria_list(request):
             Q(entidad_afectada__icontains=q) |
             Q(usuario_username__icontains=q)
         )
+    if fecha_filtro:
+        try:
+            fecha_obj = date.fromisoformat(fecha_filtro)
+            registros = registros.filter(timestamp__date=fecha_obj)
+        except ValueError:
+            fecha_filtro = ''
     return render(request, 'core/auditoria_list.html', {
         'registros': registros[:100],
         'rol_filtro': rol_filtro,
         'q': q,
+        'fecha_filtro': fecha_filtro,
         'roles': Usuario.Rol.choices,
     })
+
+
+@rol_requerido(
+    'admin',
+    motivo='Solo el Administrador (Docente) está autorizado para descargar respaldos de la base de datos.'
+)
+def descargar_respaldo_bd(request):
+    """Genera y descarga un respaldo JSON completo de los modelos operativos del CESFAM (RNF)."""
+    buf = io.StringIO()
+    call_command(
+        'dumpdata',
+        'core', 'farmacia', 'dispensacion', 'ges', 'controlados', 'carros_clinicos',
+        indent=2,
+        stdout=buf,
+    )
+    contenido = buf.getvalue()
+    nombre_archivo = f"cesfam_respaldo_bd_{timezone.localtime(timezone.now()).strftime('%Y%m%d_%H%M%S')}.json"
+    registrar_auditoria(
+        request.user,
+        'Descarga de Respaldo de Base de Datos (JSON)',
+        nombre_archivo,
+        valores_nuevos={'formato': 'JSON dumpdata', 'bytes': len(contenido.encode('utf-8'))}
+    )
+    response = HttpResponse(contenido, content_type='application/json; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
+
+
+IMPORT_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
+IMPORT_MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024  # 20 MB anti zip-bomb
+IMPORT_MAX_FILAS = 500
+IMPORT_COLUMNAS_REQUERIDAS = ('rut', 'nombres', 'apellidos', 'correo', 'telefono', 'seccion', 'rol')
+
+IMPORT_EXTENSIONES_PELIGROSAS = {
+    '.exe', '.dll', '.bat', '.cmd', '.com', '.msi', '.ps1', '.vbs', '.js',
+    '.jse', '.sh', '.php', '.py', '.rb', '.pl', '.html', '.htm', '.svg',
+    '.xml', '.jar', '.scr', '.pif', '.xlsm', '.xlsb', '.docm',
+}
+
+IMPORT_FIRMAS_PROHIBIDAS_CSV = (
+    b'MZ',
+    b'\x7fELF',
+    b'PK\x03\x04',
+    b'PK\x05\x06',
+    b'%PDF',
+    b'\x89PNG',
+    b'\xff\xd8\xff',
+    b'GIF8',
+    b'#!/',
+    b'<?php',
+    b'<!doctype html',
+    b'<html',
+    b'<script',
+)
+
+IMPORT_ROLES_ALIAS = {
+    'admin': Usuario.Rol.ADMINISTRADOR,
+    'administrador': Usuario.Rol.ADMINISTRADOR,
+    'administrador (docente)': Usuario.Rol.ADMINISTRADOR,
+    'docente': Usuario.Rol.ADMINISTRADOR,
+    'quimico': Usuario.Rol.QUIMICO_FARMACEUTICO,
+    'quimico farmaceutico': Usuario.Rol.QUIMICO_FARMACEUTICO,
+    'qf': Usuario.Rol.QUIMICO_FARMACEUTICO,
+    'q.f.': Usuario.Rol.QUIMICO_FARMACEUTICO,
+    'q.f': Usuario.Rol.QUIMICO_FARMACEUTICO,
+    'tecnico': Usuario.Rol.TECNICO_FARMACIA,
+    'tecnico en farmacia': Usuario.Rol.TECNICO_FARMACIA,
+    'tecnico farmacia': Usuario.Rol.TECNICO_FARMACIA,
+    'tens': Usuario.Rol.TECNICO_FARMACIA,
+    'clinico': Usuario.Rol.PERSONAL_CLINICO,
+    'personal clinico': Usuario.Rol.PERSONAL_CLINICO,
+    'enfermero': Usuario.Rol.PERSONAL_CLINICO,
+    'enfermera': Usuario.Rol.PERSONAL_CLINICO,
+    'medico': Usuario.Rol.PERSONAL_CLINICO,
+    'matrona': Usuario.Rol.PERSONAL_CLINICO,
+}
+
+
+def _normalizar_texto_ascii(valor):
+    texto = unicodedata.normalize('NFKD', str(valor or '').strip())
+    return ''.join(ch for ch in texto if not unicodedata.combining(ch))
+
+
+def _normalizar_encabezado(valor):
+    limpio = _normalizar_texto_ascii(valor).lower()
+    limpio = re.sub(r'[^a-z0-9]+', '_', limpio).strip('_')
+    return limpio
+
+
+def _generar_username_disponible(nombres, apellidos, rut_limpio, existentes):
+    n_clean = re.sub(r'[^a-z0-9]+', '', _normalizar_texto_ascii(nombres).lower())
+    a_tokens = [
+        re.sub(r'[^a-z0-9]+', '', t)
+        for t in _normalizar_texto_ascii(apellidos).lower().split()
+        if t.strip()
+    ]
+    a_clean = a_tokens[0] if a_tokens else ''
+    if n_clean and a_clean:
+        base = f'{n_clean[0]}.{a_clean}'[:24]
+    elif a_clean:
+        base = a_clean[:24]
+    else:
+        base = f'est_{rut_limpio.lower()}'[:24]
+
+    candidato = base
+    sufijo = 2
+    while candidato in existentes:
+        candidato = f'{base[:20]}{sufijo}'
+        sufijo += 1
+    existentes.add(candidato)
+    return candidato
+
+
+def _tiene_inyeccion_formula(valor, permitir_mas=False):
+    if not valor:
+        return False
+    primer = valor[0]
+    if primer in ('=', '@', '\t', '\r'):
+        return True
+    if primer == '-':
+        return True
+    if primer == '+' and not permitir_mas:
+        return True
+    return False
+
+
+def _extraer_filas_archivo_curso(archivo):
+    """
+    Valida estrictamente extensión, tamaño y contenido real de un archivo .csv o .xlsx
+    y devuelve (filas_como_listas_de_str, error_str_o_None).
+    """
+    nombre = os.path.basename(getattr(archivo, 'name', '') or '').strip()
+    if not nombre or '/' in nombre or '\\' in nombre:
+        return None, 'Nombre de archivo inválido.'
+
+    nombre_lower = nombre.lower()
+    _, ext = os.path.splitext(nombre_lower)
+    if ext not in ('.csv', '.xlsx'):
+        return None, f'Extensión no permitida ({ext or "sin extensión"}). Solo se aceptan archivos .csv o .xlsx.'
+
+    # Rechazar dobles extensiones sospechosas (ej. payload.exe.csv, shell.php.xlsx)
+    partes_nombre = nombre_lower.split('.')
+    if len(partes_nombre) > 2:
+        for parte in partes_nombre[1:-1]:
+            if f'.{parte}' in IMPORT_EXTENSIONES_PELIGROSAS:
+                return None, 'Archivo rechazado por doble extensión potencialmente peligrosa.'
+
+    if archivo.size is None or archivo.size == 0:
+        return None, 'El archivo está vacío.'
+    if archivo.size > IMPORT_MAX_BYTES:
+        return None, 'El archivo supera el tamaño máximo permitido de 2 MB.'
+
+    raw_bytes = archivo.read(IMPORT_MAX_BYTES + 1)
+    if not raw_bytes:
+        return None, 'El archivo no contiene datos.'
+    if len(raw_bytes) > IMPORT_MAX_BYTES:
+        return None, 'El archivo supera el tamaño máximo permitido de 2 MB.'
+
+    if ext == '.xlsx':
+        if not raw_bytes.startswith(b'PK\x03\x04'):
+            return None, 'El archivo .xlsx no corresponde a un libro Excel válido (firma binaria inválida o archivo renombrado).'
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw_bytes), 'r') as zf:
+                nombres_zip = zf.namelist()
+                if '[Content_Types].xml' not in nombres_zip or 'xl/workbook.xml' not in nombres_zip:
+                    return None, 'El archivo .xlsx no contiene una estructura válida de libro Excel.'
+                total_descomprimido = 0
+                for info in zf.infolist():
+                    miembro = info.filename.replace('\\', '/')
+                    if '..' in miembro.split('/'):
+                        return None, 'El archivo .xlsx contiene rutas internas no permitidas.'
+                    miembro_lower = miembro.lower()
+                    if 'vbaproject.bin' in miembro_lower or miembro_lower.endswith(('.exe', '.dll', '.js', '.vbs', '.ps1', '.sh', '.bat')):
+                        return None, 'Archivo .xlsx rechazado: no se permiten macros ni binarios incrustados.'
+                    total_descomprimido += info.file_size
+                    if total_descomprimido > IMPORT_MAX_UNCOMPRESSED_BYTES:
+                        return None, 'Archivo .xlsx rechazado: supera el límite seguro de descompresión.'
+        except zipfile.BadZipFile:
+            return None, 'El archivo .xlsx está dañado o no es un archivo Excel real.'
+
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+            try:
+                ws = wb.active
+                filas = []
+                for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+                    if idx > IMPORT_MAX_FILAS + 50:
+                        return None, f'El archivo supera el máximo permitido de {IMPORT_MAX_FILAS} filas.'
+                    filas.append(['' if c is None else str(c).strip() for c in row])
+                return filas, None
+            finally:
+                wb.close()
+        except Exception:
+            return None, 'No se pudo leer el archivo Excel (.xlsx). Verifique que sea un libro válido sin contraseña.'
+
+    # Validación estricta para .csv
+    if b'\x00' in raw_bytes:
+        return None, 'Archivo .csv rechazado: contiene bytes nulos (archivo binario o renombrado).'
+
+    muestra_inicio = raw_bytes[:512].lstrip()
+    muestra_inicio_lower = muestra_inicio.lower()
+    for firma in IMPORT_FIRMAS_PROHIBIDAS_CSV:
+        if muestra_inicio.startswith(firma) or muestra_inicio_lower.startswith(firma.lower()):
+            return None, 'Archivo .csv rechazado: el contenido corresponde a un binario, documento o script no permitido.'
+
+    try:
+        texto = raw_bytes.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        try:
+            texto = raw_bytes.decode('latin-1')
+        except UnicodeDecodeError:
+            return None, 'No se pudo decodificar el archivo .csv como texto válido (UTF-8).'
+
+    # Verificar caracteres de control binarios no imprimibles
+    for ch in texto[:8192]:
+        code = ord(ch)
+        if code < 32 and ch not in ('\r', '\n', '\t'):
+            return None, 'Archivo .csv rechazado: contiene caracteres binarios de control.'
+
+    texto_lower = texto.lower()
+    if '<script' in texto_lower or '</script>' in texto_lower or '<?php' in texto_lower or 'javascript:' in texto_lower:
+        return None, 'Archivo .csv rechazado: contiene etiquetas o código de script no permitido.'
+
+    lineas_no_vacias = [ln for ln in texto.splitlines() if ln.strip()]
+    if not lineas_no_vacias:
+        return None, 'El archivo .csv no contiene filas.'
+
+    primera_linea = lineas_no_vacias[0]
+    delimitador = ';' if primera_linea.count(';') > primera_linea.count(',') else ','
+
+    try:
+        lector = csv.reader(io.StringIO(texto), delimiter=delimitador)
+        filas = []
+        for idx, row in enumerate(lector, start=1):
+            if idx > IMPORT_MAX_FILAS + 50:
+                return None, f'El archivo supera el máximo permitido de {IMPORT_MAX_FILAS} filas.'
+            filas.append([str(c).strip() for c in row])
+        return filas, None
+    except csv.Error:
+        return None, 'Formato CSV inválido. Verifique comillas y delimitadores.'
 
 
 @rol_requerido(
@@ -598,28 +889,147 @@ def usuario_list(request):
                 messages.info(request, f'Estado de {u_target.get_full_name()} actualizado.')
             return redirect('core:usuario_list')
 
+        elif accion_post == 'accion_masiva':
+            tipo_masivo = request.POST.get('tipo_masivo', '').strip()
+            raw_ids = request.POST.getlist('usuario_ids')
+            ids_validos = []
+            for raw_id in raw_ids:
+                try:
+                    ids_validos.append(int(raw_id))
+                except (TypeError, ValueError):
+                    continue
+
+            objetivos = list(
+                Usuario.objects.filter(pk__in=ids_validos).exclude(pk=request.user.pk)
+            )
+            if not objetivos:
+                messages.warning(request, 'Seleccione al menos un usuario (distinto de su propia cuenta) para aplicar la acción masiva.')
+                return redirect('core:usuario_list')
+
+            if tipo_masivo == 'cambiar_rol':
+                nuevo_rol = request.POST.get('nuevo_rol_masivo', '').strip()
+                roles_validos = dict(Usuario.Rol.choices)
+                if nuevo_rol not in roles_validos:
+                    messages.error(request, 'El rol seleccionado para el cambio masivo no es válido.')
+                    return redirect('core:usuario_list')
+                afectados = []
+                with transaction.atomic():
+                    for u_obj in objetivos:
+                        rol_ant = u_obj.rol
+                        u_obj.rol = nuevo_rol
+                        if nuevo_rol == Usuario.Rol.QUIMICO_FARMACEUTICO and not u_obj.pin_seguridad:
+                            u_obj.pin_seguridad = make_password('123456')
+                        u_obj.save()
+                        afectados.append({'username': u_obj.username, 'rol_anterior': rol_ant, 'rol_nuevo': nuevo_rol})
+                    registrar_auditoria(
+                        request.user,
+                        'Acción masiva: Cambio de rol de usuarios',
+                        f'{len(afectados)} usuario(s) → {roles_validos[nuevo_rol]}',
+                        valores_nuevos={'rol_nuevo': nuevo_rol, 'cantidad': len(afectados), 'usuarios': afectados}
+                    )
+                messages.success(
+                    request,
+                    f'Rol actualizado a "{roles_validos[nuevo_rol]}" para {len(afectados)} usuario(s).'
+                )
+                return redirect('core:usuario_list')
+
+            elif tipo_masivo in ('activar', 'desactivar'):
+                activar = tipo_masivo == 'activar'
+                afectados = []
+                with transaction.atomic():
+                    for u_obj in objetivos:
+                        u_obj.is_active = activar
+                        u_obj.activo_sistema = activar
+                        u_obj.save()
+                        afectados.append(u_obj.username)
+                    accion_txt = 'Activación masiva de cuentas' if activar else 'Desactivación masiva de cuentas'
+                    registrar_auditoria(
+                        request.user,
+                        f'Acción masiva: {accion_txt}',
+                        f'{len(afectados)} usuario(s)',
+                        valores_nuevos={'activo': activar, 'cantidad': len(afectados), 'usuarios': afectados}
+                    )
+                verbo = 'activada(s)' if activar else 'desactivada(s)'
+                messages.success(request, f'{len(afectados)} cuenta(s) {verbo} correctamente.')
+                return redirect('core:usuario_list')
+
+            messages.error(request, 'Acción masiva no reconocida.')
+            return redirect('core:usuario_list')
+
         elif accion_post == 'editar_usuario':
             u_target = get_object_or_404(Usuario, pk=request.POST.get('usuario_id'))
             rut_edit = request.POST.get('rut', u_target.rut).strip()
+            first_name_edit = request.POST.get('first_name', '').strip()
+            last_name_edit = request.POST.get('last_name', '').strip()
+            email_edit = request.POST.get('email', '').strip()
+            telefono_edit = request.POST.get('telefono', '').strip()[:15]
+            seccion_edit_raw = request.POST.get('seccion', '').strip()[:60]
+            nuevo_rol = request.POST.get('rol', u_target.rol).strip()
+            estado_edit = request.POST.get('estado', '').strip()
+            nueva_password = request.POST.get('nueva_password', '').strip()
+
+            if not first_name_edit or not last_name_edit:
+                messages.error(request, 'Los campos Nombres y Apellidos son obligatorios.')
+                return redirect('core:usuario_list')
             if not validar_rut(rut_edit):
                 messages.error(request, 'El RUT ingresado al editar el usuario no es válido.')
                 return redirect('core:usuario_list')
+            if email_edit:
+                try:
+                    validate_email(email_edit)
+                except ValidationError:
+                    messages.error(request, f'El correo institucional "{email_edit}" no tiene un formato válido.')
+                    return redirect('core:usuario_list')
+            if nuevo_rol not in dict(Usuario.Rol.choices):
+                messages.error(request, 'El cargo / rol seleccionado no es válido.')
+                return redirect('core:usuario_list')
+
+            rut_fmt = formatear_rut(rut_edit)
+            if Usuario.objects.exclude(pk=u_target.pk).filter(rut=rut_fmt).exists():
+                messages.error(request, f'Ya existe otro funcionario registrado con el RUT {rut_fmt}.')
+                return redirect('core:usuario_list')
+
+            # Resolver nombre canónico de sección desde SeccionCurso (o vacío para Sin sección)
+            seccion_final = ''
+            if seccion_edit_raw:
+                sec_obj = SeccionCurso.objects.filter(nombre__iexact=seccion_edit_raw).first()
+                if sec_obj:
+                    seccion_final = sec_obj.nombre
+                elif seccion_edit_raw.lower() == (u_target.seccion or '').lower():
+                    seccion_final = u_target.seccion
+                else:
+                    messages.error(request, f'La sección "{seccion_edit_raw}" no existe en el catálogo de secciones.')
+                    return redirect('core:usuario_list')
+
             try:
                 ant = {
                     'rut': u_target.rut,
                     'nombre': u_target.get_full_name(),
                     'telefono': u_target.telefono,
+                    'email': u_target.email,
+                    'seccion': u_target.seccion,
                     'rol': u_target.rol,
+                    'activo': u_target.is_active,
                 }
-                u_target.rut = formatear_rut(rut_edit)
-                u_target.first_name = request.POST.get('first_name', u_target.first_name).strip()
-                u_target.last_name = request.POST.get('last_name', u_target.last_name).strip()
-                u_target.telefono = request.POST.get('telefono', u_target.telefono).strip()
-                u_target.email = request.POST.get('email', u_target.email).strip()
-                nuevo_rol = request.POST.get('rol', u_target.rol)
-                if nuevo_rol in dict(Usuario.Rol.choices):
-                    u_target.rol = nuevo_rol
+                u_target.rut = rut_fmt
+                u_target.first_name = first_name_edit
+                u_target.last_name = last_name_edit
+                u_target.telefono = telefono_edit
+                u_target.email = email_edit
+                u_target.seccion = seccion_final
+                u_target.rol = nuevo_rol
+                if u_target.pk != request.user.pk and estado_edit in ('activo', 'inactivo'):
+                    u_target.is_active = (estado_edit == 'activo')
+                    u_target.activo_sistema = u_target.is_active
+                if u_target.rol == Usuario.Rol.QUIMICO_FARMACEUTICO and not u_target.pin_seguridad:
+                    u_target.pin_seguridad = make_password('123456')
+                password_cambiada = False
+                if nueva_password:
+                    u_target.set_password(nueva_password)
+                    password_cambiada = True
                 u_target.save()
+                if password_cambiada and u_target.pk == request.user.pk:
+                    update_session_auth_hash(request, u_target)
                 registrar_auditoria(
                     request.user,
                     'Edición de usuario y asignación de rol',
@@ -629,10 +1039,15 @@ def usuario_list(request):
                         'rut': u_target.rut,
                         'nombre': u_target.get_full_name(),
                         'telefono': u_target.telefono,
+                        'email': u_target.email,
+                        'seccion': u_target.seccion,
                         'rol': u_target.rol,
+                        'activo': u_target.is_active,
+                        'password_actualizada': password_cambiada,
                     }
                 )
-                messages.success(request, f'Datos y rol de {u_target.get_full_name()} actualizados.')
+                extra_msg = ' (incluyendo actualización de contraseña)' if password_cambiada else ''
+                messages.success(request, f'Datos de {u_target.get_full_name()} actualizados correctamente{extra_msg}.')
             except Exception as e:
                 messages.error(request, f'No fue posible actualizar el usuario: {e}')
             return redirect('core:usuario_list')
@@ -655,42 +1070,584 @@ def usuario_list(request):
                 messages.error(request, 'No se puede eliminar una cuenta base de simulación o el usuario en sesión.')
             return redirect('core:usuario_list')
 
-        rut = request.POST.get('rut', '')
-        if not validar_rut(rut):
-            messages.error(request, 'El RUT ingresado no es válido.')
-        else:
-            try:
-                nuevo_usr = Usuario.objects.create_user(
-                    username=request.POST.get('username'),
-                    password=request.POST.get('password', 'Inacap2026!'),
-                    rut=formatear_rut(rut),
-                    first_name=request.POST.get('first_name', ''),
-                    last_name=request.POST.get('last_name', ''),
-                    email=request.POST.get('email', ''),
-                    telefono=request.POST.get('telefono', ''),
-                    rol=request.POST.get('rol', 'tecnico'),
-                )
-                registrar_auditoria(
-                    request.user,
-                    'Creación de cuenta de usuario',
-                    f'Usuario {nuevo_usr.username} ({nuevo_usr.get_rol_display()})',
-                    valores_nuevos={
-                        'username': nuevo_usr.username,
-                        'rut': nuevo_usr.rut,
-                        'telefono': nuevo_usr.telefono,
-                        'rol': nuevo_usr.rol,
-                    }
-                )
-                messages.success(request, f'Usuario {nuevo_usr.get_full_name()} creado correctamente.')
-                return redirect('core:usuario_list')
-            except Exception as e:
-                messages.error(request, f'No fue posible crear el usuario: {e}')
+        # Acción por defecto: crear funcionario
+        rut = request.POST.get('rut', '').strip()
+        username = request.POST.get('username', '').strip()
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        email = request.POST.get('email', '').strip()
+        telefono = request.POST.get('telefono', '').strip()[:15]
+        seccion_raw = request.POST.get('seccion', '').strip()[:60]
+        rol_nuevo = request.POST.get('rol', Usuario.Rol.TECNICO_FARMACIA).strip()
+        usar_rut_pass = request.POST.get('usar_rut_como_password') == 'on'
 
-    usuarios = Usuario.objects.all().order_by('rol', 'last_name')
+        seccion_canonica = ''
+        if seccion_raw:
+            sec_obj = SeccionCurso.objects.filter(nombre__iexact=seccion_raw).first()
+            if sec_obj:
+                seccion_canonica = sec_obj.nombre
+            else:
+                sec_obj = SeccionCurso.objects.create(nombre=seccion_raw, activa=True)
+                seccion_canonica = sec_obj.nombre
+
+        if not username or not first_name or not last_name:
+            messages.error(request, 'Complete los campos obligatorios: Usuario, Nombres y Apellidos.')
+        elif rol_nuevo not in dict(Usuario.Rol.choices):
+            messages.error(request, 'El rol seleccionado no es válido.')
+        elif not validar_rut(rut):
+            messages.error(request, 'El RUT ingresado no es válido.')
+        elif Usuario.objects.filter(username__iexact=username).exists():
+            messages.error(request, f'El nombre de usuario "{username}" ya se encuentra registrado.')
+        elif Usuario.objects.filter(rut=formatear_rut(rut)).exists():
+            messages.error(request, f'Ya existe un funcionario registrado con el RUT {formatear_rut(rut)}.')
+        else:
+            password_final = limpiar_rut(rut) if usar_rut_pass else request.POST.get('password', '').strip()
+            if not password_final:
+                messages.error(request, 'Debe ingresar una contraseña inicial o marcar el uso del RUT como contraseña.')
+            else:
+                try:
+                    nuevo_usr = Usuario.objects.create_user(
+                        username=username,
+                        password=password_final,
+                        rut=formatear_rut(rut),
+                        first_name=first_name,
+                        last_name=last_name,
+                        email=email,
+                        telefono=telefono,
+                        seccion=seccion_canonica,
+                        rol=rol_nuevo,
+                    )
+                    if nuevo_usr.rol == Usuario.Rol.QUIMICO_FARMACEUTICO:
+                        nuevo_usr.pin_seguridad = make_password('123456')
+                        nuevo_usr.save(update_fields=['pin_seguridad'])
+                    registrar_auditoria(
+                        request.user,
+                        'Creación de cuenta de usuario',
+                        f'Usuario {nuevo_usr.username} ({nuevo_usr.get_rol_display()})',
+                        valores_nuevos={
+                            'username': nuevo_usr.username,
+                            'rut': nuevo_usr.rut,
+                            'telefono': nuevo_usr.telefono,
+                            'seccion': nuevo_usr.seccion,
+                            'rol': nuevo_usr.rol,
+                            'password_desde_rut': usar_rut_pass,
+                        }
+                    )
+                    extra_pwd = ' (contraseña inicial = RUT sin puntos ni guion)' if usar_rut_pass else ''
+                    messages.success(request, f'Usuario {nuevo_usr.get_full_name()} creado correctamente{extra_pwd}.')
+                    return redirect('core:usuario_list')
+                except Exception as e:
+                    messages.error(request, f'No fue posible crear el usuario: {e}')
+
+    # Filtros GET
+    q = request.GET.get('q', '').strip()
+    seccion_filtro = request.GET.get('seccion', '').strip()
+    rol_filtro = request.GET.get('rol', '').strip()
+    estado_filtro = request.GET.get('estado', '').strip()
+
+    usuarios_qs = Usuario.objects.all()
+    total_usuarios = usuarios_qs.count()
+
+    if q:
+        q_filter = (
+            Q(username__icontains=q)
+            | Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(rut__icontains=q)
+            | Q(email__icontains=q)
+            | Q(seccion__icontains=q)
+        )
+        if validar_rut(q):
+            q_filter |= Q(rut=formatear_rut(q))
+        usuarios_qs = usuarios_qs.filter(q_filter)
+
+    if seccion_filtro == '__sin_seccion__':
+        usuarios_qs = usuarios_qs.filter(Q(seccion='') | Q(seccion__isnull=True))
+    elif seccion_filtro:
+        usuarios_qs = usuarios_qs.filter(seccion__iexact=seccion_filtro)
+
+    if rol_filtro in dict(Usuario.Rol.choices):
+        usuarios_qs = usuarios_qs.filter(rol=rol_filtro)
+    else:
+        rol_filtro = ''
+
+    if estado_filtro == 'activo':
+        usuarios_qs = usuarios_qs.filter(is_active=True)
+    elif estado_filtro == 'inactivo':
+        usuarios_qs = usuarios_qs.filter(is_active=False)
+    else:
+        estado_filtro = ''
+
+    usuarios = usuarios_qs.order_by('rol', 'seccion', 'last_name', 'first_name')
+
+    # Catálogo dinámico de Secciones / Cursos con conteo de usuarios asignados
+    conteo_por_seccion = {}
+    for row in Usuario.objects.exclude(seccion='').values('seccion').annotate(total=Count('id')):
+        clave = (row['seccion'] or '').strip().lower()
+        conteo_por_seccion[clave] = conteo_por_seccion.get(clave, 0) + row['total']
+
+    secciones_curso = list(SeccionCurso.objects.all().order_by('nombre'))
+    for sec in secciones_curso:
+        sec.num_usuarios = conteo_por_seccion.get(sec.nombre.lower(), 0)
+
+    secciones_activas = [s for s in secciones_curso if s.activa]
+    secciones_disponibles = [s.nombre for s in secciones_curso]
+    hay_sin_seccion = Usuario.objects.filter(Q(seccion='') | Q(seccion__isnull=True)).exists()
+    import_errores = request.session.pop('import_curso_errores', None)
+    seccion_feedback = request.session.pop('seccion_feedback', None)
+
     return render(request, 'core/usuario_list.html', {
         'usuarios': usuarios,
+        'total_usuarios': total_usuarios,
         'roles': Usuario.Rol.choices,
+        'secciones_curso': secciones_curso,
+        'secciones_activas': secciones_activas,
+        'secciones_disponibles': secciones_disponibles,
+        'hay_sin_seccion': hay_sin_seccion,
+        'q': q,
+        'seccion_filtro': seccion_filtro,
+        'rol_filtro': rol_filtro,
+        'estado_filtro': estado_filtro,
+        'filtros_activos': bool(q or seccion_filtro or rol_filtro or estado_filtro),
+        'import_errores': import_errores,
+        'seccion_feedback': seccion_feedback,
+        'abrir_modal_secciones': request.GET.get('modal') == 'secciones',
     })
+
+
+@rol_requerido(
+    'admin',
+    motivo='Solo el Administrador (Docente) puede crear secciones o cursos.'
+)
+def seccion_crear(request):
+    """Crea una nueva Sección / Curso validando unicidad sin distinción de mayúsculas."""
+    url_destino = f"{reverse('core:usuario_list')}?modal=secciones"
+    if request.method != 'POST':
+        return redirect(url_destino)
+
+    nombre = request.POST.get('nombre', '').strip()[:60]
+    descripcion = request.POST.get('descripcion', '').strip()[:180]
+    activa = request.POST.get('activa', 'on') == 'on'
+
+    if not nombre:
+        msg = 'El nombre de la sección / curso es obligatorio.'
+        messages.error(request, msg)
+        request.session['seccion_feedback'] = {'tipo': 'danger', 'texto': msg}
+        return redirect(url_destino)
+
+    if SeccionCurso.objects.filter(nombre__iexact=nombre).exists():
+        msg = f'Ya existe una sección registrada con el nombre "{nombre}" (sin distinguir mayúsculas/minúsculas).'
+        messages.error(request, msg)
+        request.session['seccion_feedback'] = {'tipo': 'danger', 'texto': msg}
+        return redirect(url_destino)
+
+    sec = SeccionCurso.objects.create(nombre=nombre, descripcion=descripcion, activa=activa)
+    registrar_auditoria(
+        request.user,
+        'Creación de Sección / Curso',
+        f'Sección {sec.nombre}',
+        valores_nuevos={
+            'nombre': sec.nombre,
+            'descripcion': sec.descripcion,
+            'activa': sec.activa,
+        }
+    )
+    msg = f'Sección "{sec.nombre}" creada correctamente.'
+    messages.success(request, msg)
+    request.session['seccion_feedback'] = {'tipo': 'success', 'texto': msg}
+    return redirect(url_destino)
+
+
+@rol_requerido(
+    'admin',
+    motivo='Solo el Administrador (Docente) puede editar o renombrar secciones.'
+)
+@transaction.atomic
+def seccion_editar(request, pk):
+    """Edita/renombra cualquier Sección / Curso y propaga el cambio a todos sus usuarios."""
+    url_destino = f"{reverse('core:usuario_list')}?modal=secciones"
+    if request.method != 'POST':
+        return redirect(url_destino)
+
+    sec = get_object_or_404(SeccionCurso, pk=pk)
+    nuevo_nombre = request.POST.get('nombre', '').strip()[:60]
+    nueva_desc = request.POST.get('descripcion', '').strip()[:180]
+    nueva_activa = request.POST.get('activa') == 'on'
+
+    if not nuevo_nombre:
+        msg = 'El nombre de la sección no puede quedar vacío.'
+        messages.error(request, msg)
+        request.session['seccion_feedback'] = {'tipo': 'danger', 'texto': msg}
+        return redirect(url_destino)
+
+    if SeccionCurso.objects.exclude(pk=sec.pk).filter(nombre__iexact=nuevo_nombre).exists():
+        msg = f'No se pudo renombrar: ya existe otra sección llamada "{nuevo_nombre}".'
+        messages.error(request, msg)
+        request.session['seccion_feedback'] = {'tipo': 'danger', 'texto': msg}
+        return redirect(url_destino)
+
+    nombre_ant = sec.nombre
+    ant = {
+        'nombre': sec.nombre,
+        'descripcion': sec.descripcion,
+        'activa': sec.activa,
+    }
+    sec.nombre = nuevo_nombre
+    sec.descripcion = nueva_desc
+    sec.activa = nueva_activa
+    sec.save()
+
+    usuarios_actualizados = 0
+    if nombre_ant != nuevo_nombre:
+        usuarios_actualizados = Usuario.objects.filter(seccion__iexact=nombre_ant).update(seccion=nuevo_nombre)
+
+    registrar_auditoria(
+        request.user,
+        'Edición de Sección / Curso',
+        f'Sección {nombre_ant} → {sec.nombre}' if nombre_ant != sec.nombre else f'Sección {sec.nombre}',
+        valores_anteriores=ant,
+        valores_nuevos={
+            'nombre': sec.nombre,
+            'descripcion': sec.descripcion,
+            'activa': sec.activa,
+            'usuarios_actualizados': usuarios_actualizados,
+        }
+    )
+
+    if nombre_ant != nuevo_nombre:
+        msg = (
+            f'Sección "{nombre_ant}" renombrada a "{sec.nombre}". '
+            f'Se actualizaron automáticamente {usuarios_actualizados} usuario(s).'
+        )
+    else:
+        msg = f'Sección "{sec.nombre}" actualizada correctamente.'
+    messages.success(request, msg)
+    request.session['seccion_feedback'] = {'tipo': 'success', 'texto': msg}
+    return redirect(url_destino)
+
+
+@rol_requerido(
+    'admin',
+    motivo='Solo el Administrador (Docente) puede eliminar secciones o cursos.'
+)
+@transaction.atomic
+def seccion_eliminar(request, pk):
+    """Elimina una Sección / Curso reasignando sus usuarios a Sin sección (nunca borra usuarios)."""
+    url_destino = f"{reverse('core:usuario_list')}?modal=secciones"
+    if request.method != 'POST':
+        return redirect(url_destino)
+
+    sec = get_object_or_404(SeccionCurso, pk=pk)
+    nombre_eliminado = sec.nombre
+    usuarios_reasignados = Usuario.objects.filter(seccion__iexact=nombre_eliminado).update(seccion='')
+    sec.delete()
+
+    registrar_auditoria(
+        request.user,
+        'Eliminación de Sección / Curso',
+        f'Sección {nombre_eliminado}',
+        valores_anteriores={'nombre': nombre_eliminado},
+        valores_nuevos={'usuarios_reasignados_sin_seccion': usuarios_reasignados}
+    )
+
+    if usuarios_reasignados > 0:
+        msg = (
+            f'Sección "{nombre_eliminado}" eliminada. '
+            f'{usuarios_reasignados} usuario(s) fueron reasignados a "Sin sección" sin borrar sus cuentas.'
+        )
+    else:
+        msg = f'Sección "{nombre_eliminado}" eliminada correctamente.'
+    messages.warning(request, msg)
+    request.session['seccion_feedback'] = {'tipo': 'warning', 'texto': msg}
+    return redirect(url_destino)
+
+
+@rol_requerido(
+    'admin',
+    motivo='Solo el Administrador (Docente) puede descargar plantillas de importación de cursos.'
+)
+def usuario_descargar_plantilla(request, formato):
+    """Descarga plantilla oficial (.csv o .xlsx) para importación masiva de cursos."""
+    formato = (formato or '').lower().strip()
+    ejemplos = [
+        ['20.123.456-5', 'Camila Andrea', 'Rojas Muñoz', 'camila.rojas@inacapmail.cl', '+56981234567', 'AP-N4-C1', 'tecnico'],
+        ['21.234.567-9', 'Matías Ignacio', 'Fuentes Díaz', 'matias.fuentes@inacapmail.cl', '+56987654321', 'AP-N4-C1', 'quimico'],
+    ]
+
+    if formato == 'csv':
+        response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+        response['Content-Disposition'] = 'attachment; filename="plantilla_curso_cesfam.csv"'
+        response.write('\ufeff')
+        writer = csv.writer(response)
+        writer.writerow(list(IMPORT_COLUMNAS_REQUERIDAS))
+        for fila in ejemplos:
+            writer.writerow(fila)
+        return response
+
+    if formato == 'xlsx':
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Estudiantes'
+        header_fill = PatternFill(start_color='B91C1C', end_color='B91C1C', fill_type='solid')
+        header_font = Font(color='FFFFFF', bold=True)
+
+        ws.append(list(IMPORT_COLUMNAS_REQUERIDAS))
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center')
+
+        for fila in ejemplos:
+            ws.append(fila)
+
+        anchos = [16, 22, 22, 30, 16, 16, 16]
+        for idx, ancho in enumerate(anchos, start=1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(idx)].width = ancho
+
+        ws_info = wb.create_sheet(title='Instrucciones')
+        ws_info.append(['Campo', 'Obligatorio', 'Valores permitidos / Formato'])
+        for cell in ws_info[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        ws_info.append(['rut', 'Sí', 'RUT chileno válido con dígito verificador (ej: 20.123.456-5)'])
+        ws_info.append(['nombres', 'Sí', 'Nombres del estudiante o funcionario'])
+        ws_info.append(['apellidos', 'Sí', 'Apellidos del estudiante o funcionario'])
+        ws_info.append(['correo', 'No', 'Correo institucional (opcional, ej: nombre@inacapmail.cl)'])
+        ws_info.append(['telefono', 'No', 'Teléfono de contacto (opcional, ej: +56912345678)'])
+        ws_info.append(['seccion', 'No', 'Sección / Curso (ej: AP-N4-C1, Sección 001D)'])
+        ws_info.append(['rol', 'Sí', 'tecnico | quimico | clinico | admin'])
+        ws_info.append(['Contraseña inicial', 'Automática', 'Se asigna el RUT sin puntos ni guion (ej: 201234565)'])
+        ws_info.column_dimensions['A'].width = 22
+        ws_info.column_dimensions['B'].width = 15
+        ws_info.column_dimensions['C'].width = 62
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="plantilla_curso_cesfam.xlsx"'
+        return response
+
+    messages.error(request, 'Formato de plantilla no soportado. Use CSV o XLSX.')
+    return redirect('core:usuario_list')
+
+
+@rol_requerido(
+    'admin',
+    motivo='Solo el Administrador (Docente) puede importar cursos masivamente.'
+)
+def usuario_importar_curso(request):
+    """Importación masiva segura (.csv / .xlsx) con validación estricta previa y transacción atómica."""
+    if request.method != 'POST':
+        return redirect('core:usuario_list')
+
+    archivo = request.FILES.get('archivo_curso')
+    if not archivo:
+        messages.error(request, 'Debe seleccionar un archivo .csv o .xlsx para importar.')
+        return redirect('core:usuario_list')
+
+    seccion_defecto = request.POST.get('seccion_defecto', '').strip()[:60]
+    filas, error_archivo = _extraer_filas_archivo_curso(archivo)
+    if error_archivo:
+        request.session['import_curso_errores'] = [error_archivo]
+        messages.error(request, f'Archivo rechazado por validación de seguridad: {error_archivo}')
+        return redirect('core:usuario_list')
+
+    # Ubicar primera fila no vacía como encabezados
+    idx_header = None
+    for i, fila in enumerate(filas):
+        if any(c.strip() for c in fila):
+            idx_header = i
+            break
+
+    if idx_header is None:
+        err = 'El archivo no contiene encabezados ni registros.'
+        request.session['import_curso_errores'] = [err]
+        messages.error(request, err)
+        return redirect('core:usuario_list')
+
+    headers_norm = [_normalizar_encabezado(h) for h in filas[idx_header]]
+    mapa_cols = {h: idx for idx, h in enumerate(headers_norm) if h}
+    faltantes = [col for col in IMPORT_COLUMNAS_REQUERIDAS if col not in mapa_cols]
+    if faltantes:
+        err = (
+            f'Faltan columnas obligatorias en el encabezado: {", ".join(faltantes)}. '
+            f'Columnas requeridas: {", ".join(IMPORT_COLUMNAS_REQUERIDAS)}.'
+        )
+        request.session['import_curso_errores'] = [err]
+        messages.error(request, err)
+        return redirect('core:usuario_list')
+
+    ruts_bd = set(Usuario.objects.values_list('rut', flat=True))
+    usernames_en_uso = set(Usuario.objects.values_list('username', flat=True))
+    ruts_en_archivo = set()
+
+    errores = []
+    registros_validos = []
+
+    def _celda(row_list, col_name):
+        pos = mapa_cols[col_name]
+        return row_list[pos].strip() if pos < len(row_list) else ''
+
+    for num_fila, fila in enumerate(filas[idx_header + 1:], start=idx_header + 2):
+        if not any(c.strip() for c in fila):
+            continue
+        if len(registros_validos) >= IMPORT_MAX_FILAS:
+            errores.append(f'Se superó el máximo de {IMPORT_MAX_FILAS} estudiantes por archivo.')
+            break
+
+        rut_raw = _celda(fila, 'rut')
+        nombres = _celda(fila, 'nombres')
+        apellidos = _celda(fila, 'apellidos')
+        correo = _celda(fila, 'correo')
+        telefono = _celda(fila, 'telefono')
+        seccion = _celda(fila, 'seccion') or seccion_defecto
+        rol_raw = _celda(fila, 'rol')
+
+        errores_fila = []
+
+        # Bloqueo de inyección de fórmulas en celdas
+        for campo_nom, valor_c, permitir_mas in (
+            ('rut', rut_raw, False),
+            ('nombres', nombres, False),
+            ('apellidos', apellidos, False),
+            ('correo', correo, False),
+            ('telefono', telefono, True),
+            ('seccion', seccion, False),
+            ('rol', rol_raw, False),
+        ):
+            if _tiene_inyeccion_formula(valor_c, permitir_mas=permitir_mas):
+                errores_fila.append(f'valor sospechoso/fórmula no permitida en "{campo_nom}"')
+
+        if not rut_raw:
+            errores_fila.append('RUT vacío')
+        elif not validar_rut(rut_raw):
+            errores_fila.append(f'RUT chileno inválido ("{rut_raw}")')
+        else:
+            rut_fmt = formatear_rut(rut_raw)
+            if rut_fmt in ruts_en_archivo:
+                errores_fila.append(f'RUT duplicado dentro del archivo ({rut_fmt})')
+            elif rut_fmt in ruts_bd:
+                errores_fila.append(f'RUT ya registrado en el sistema ({rut_fmt})')
+            else:
+                ruts_en_archivo.add(rut_fmt)
+
+        if not nombres:
+            errores_fila.append('nombres vacío')
+        elif len(nombres) > 150:
+            errores_fila.append('nombres supera 150 caracteres')
+
+        if not apellidos:
+            errores_fila.append('apellidos vacío')
+        elif len(apellidos) > 150:
+            errores_fila.append('apellidos supera 150 caracteres')
+
+        if correo:
+            try:
+                validate_email(correo)
+            except ValidationError:
+                errores_fila.append(f'correo inválido ("{correo}")')
+
+        if len(telefono) > 15:
+            errores_fila.append('teléfono supera 15 caracteres')
+
+        if len(seccion) > 60:
+            errores_fila.append('sección supera 60 caracteres')
+
+        rol_norm = _normalizar_texto_ascii(rol_raw).lower()
+        rol_codigo = IMPORT_ROLES_ALIAS.get(rol_norm)
+        if not rol_codigo:
+            errores_fila.append(
+                f'rol inválido ("{rol_raw}"). Use: tecnico, quimico, clinico o admin'
+            )
+
+        if errores_fila:
+            errores.append(f'Fila {num_fila}: ' + '; '.join(errores_fila) + '.')
+        else:
+            rut_fmt = formatear_rut(rut_raw)
+            rut_limpio = limpiar_rut(rut_fmt)
+            registros_validos.append({
+                'rut': rut_fmt,
+                'rut_limpio': rut_limpio,
+                'nombres': nombres,
+                'apellidos': apellidos,
+                'correo': correo,
+                'telefono': telefono,
+                'seccion': seccion,
+                'rol': rol_codigo,
+            })
+
+    if not registros_validos and not errores:
+        errores.append('El archivo no contiene filas de estudiantes para importar.')
+
+    if errores:
+        request.session['import_curso_errores'] = errores[:25]
+        resumen = f'Importación cancelada: se detectaron {len(errores)} error(es). No se creó ningún usuario.'
+        messages.error(request, resumen)
+        return redirect('core:usuario_list')
+
+    creados = []
+    secciones_creadas = set()
+    try:
+        with transaction.atomic():
+            for reg in registros_validos:
+                username = _generar_username_disponible(
+                    reg['nombres'], reg['apellidos'], reg['rut_limpio'], usernames_en_uso
+                )
+                sec_final = ''
+                if reg['seccion']:
+                    sec_cat = SeccionCurso.objects.filter(nombre__iexact=reg['seccion']).first()
+                    if sec_cat:
+                        sec_final = sec_cat.nombre
+                    else:
+                        sec_cat = SeccionCurso.objects.create(nombre=reg['seccion'][:60], activa=True)
+                        sec_final = sec_cat.nombre
+                nuevo_usr = Usuario.objects.create_user(
+                    username=username,
+                    password=reg['rut_limpio'],
+                    rut=reg['rut'],
+                    first_name=reg['nombres'],
+                    last_name=reg['apellidos'],
+                    email=reg['correo'],
+                    telefono=reg['telefono'],
+                    seccion=sec_final,
+                    rol=reg['rol'],
+                )
+                if nuevo_usr.rol == Usuario.Rol.QUIMICO_FARMACEUTICO:
+                    nuevo_usr.pin_seguridad = make_password('123456')
+                    nuevo_usr.save(update_fields=['pin_seguridad'])
+                creados.append(nuevo_usr.username)
+                if sec_final:
+                    secciones_creadas.add(sec_final)
+
+            registrar_auditoria(
+                request.user,
+                'Importación masiva de curso (CSV/XLSX)',
+                f'Archivo {os.path.basename(archivo.name)} ({len(creados)} cuentas)',
+                valores_nuevos={
+                    'archivo': os.path.basename(archivo.name),
+                    'cantidad_creados': len(creados),
+                    'secciones': sorted(secciones_creadas),
+                    'usuarios': creados[:30],
+                }
+            )
+    except Exception as e:
+        request.session['import_curso_errores'] = [f'Error inesperado durante el guardado: {e}']
+        messages.error(request, 'No se pudo completar la importación. Se revirtieron todos los cambios.')
+        return redirect('core:usuario_list')
+
+    messages.success(
+        request,
+        f'Se importaron {len(creados)} estudiante(s) correctamente desde "{os.path.basename(archivo.name)}". '
+        f'Contraseña inicial asignada: RUT sin puntos ni guion.'
+    )
+    return redirect('core:usuario_list')
 
 
 def api_health(request):

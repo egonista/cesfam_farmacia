@@ -7,14 +7,14 @@
             <h4 class="fw-bolder mb-0"><i class="bi bi-box-seam text-danger me-2"></i>Lotes / Stock (FEFO)</h4>
             <p class="text-muted small mb-0 mt-1">Control de lotes en Bodega Central y Vitrina, ordenados por fecha de vencimiento y gestión de bajas a cuarentena</p>
         </div>
-        <div class="d-flex flex-wrap gap-2">
-            {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
-            <a href="{% url 'farmacia:traspaso' %}" class="btn btn-outline-dark">
+        <div class="page-header-actions">
+            {% if user.rol == 'admin' or user.rol == 'tecnico' or user.rol == 'quimico' %}
+            <a href="{% url 'farmacia:traspaso' %}" class="btn btn-outline-dark btn-sm">
                 <i class="bi bi-arrow-left-right me-1"></i>Traspaso Bodega → Vitrina
             </a>
             {% endif %}
-            <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-cesfam">
-                <i class="bi bi-plus-circle me-1"></i>Nuevo Lote
+            <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-cesfam btn-sm">
+                <i class="bi bi-plus-circle me-1"></i>+ Nuevo Lote
             </a>
         </div>
     </div>
@@ -70,8 +70,13 @@
 
     <div class="card">
         <div class="card-body">
-            <form method="get" class="row g-2 mb-3">
-                <div class="col-md-4"><input type="text" name="q" class="form-control" placeholder="Buscar por lote o medicamento..." value="{{ query }}"></div>
+            <form method="get" class="row g-2 mb-3 align-items-center" data-live-filter="#liveResultsLotes" data-live-debounce="300">
+                <div class="col-md-5">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" name="q" class="form-control" placeholder="Buscar por lote o medicamento..." value="{{ query }}" autocomplete="off">
+                    </div>
+                </div>
                 <div class="col-md-3"><select name="ubicacion" class="form-select"><option value="">Todas las ubicaciones</option>{% for u in ubicaciones %}<option value="{{ u.pk }}" {% if ubicacion_id == u.pk|stringformat:"s" %}selected{% endif %}>{{ u.nombre }}</option>{% endfor %}</select></div>
                 <div class="col-md-3">
                     <select name="alerta" class="form-select">
@@ -83,8 +88,14 @@
                         <option value="cuarentena" {% if alerta == "cuarentena" %}selected{% endif %}>Cuarentena / Dados de Baja</option>
                     </select>
                 </div>
-                <div class="col-md-2"><button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-filter me-1"></i>Filtrar</button></div>
+                <div class="col-md-auto">
+                    <a href="{% url 'farmacia:lote_list' %}" data-live-filter-clear
+                       class="btn btn-outline-secondary btn-sm {% if not query and not ubicacion_id and not alerta %}d-none{% endif %}" title="Limpiar filtros">
+                        <i class="bi bi-x-lg me-1"></i>Limpiar
+                    </a>
+                </div>
             </form>
+            <div id="liveResultsLotes">
             <div class="table-responsive">
                 <table class="table table-cesfam align-middle">
                     <thead>
@@ -102,7 +113,7 @@
                     <tbody>
                     {% for l in lotes %}
                     <tr class="{% if l.en_cuarentena %}table-secondary text-muted{% elif l.esta_vencido %}table-danger{% elif l.dias_para_vencer <= 30 %}table-warning{% endif %}">
-                        <td><strong><code>{{ l.numero_lote }}</code></strong></td>
+                        <td class="whitespace-nowrap text-nowrap"><strong><code>{{ l.numero_lote }}</code></strong></td>
                         <td>
                             <strong>{{ l.medicamento.nombre_generico }}</strong> {{ l.medicamento.concentracion }}
                             {% if l.en_cuarentena and l.motivo_cuarentena %}
@@ -110,9 +121,9 @@
                             {% endif %}
                         </td>
                         <td class="small">{{ l.ubicacion.nombre }}</td>
-                        <td class="fw-bold">{{ l.cantidad_actual }}</td>
-                        <td class="small">{{ l.fecha_vencimiento|date:"d/m/Y" }}</td>
-                        <td class="small fw-bold">{{ l.dias_para_vencer }}d</td>
+                        <td class="fw-bold whitespace-nowrap text-nowrap">{{ l.cantidad_actual }}</td>
+                        <td class="small whitespace-nowrap text-nowrap">{{ l.fecha_vencimiento|date:"d/m/Y" }}</td>
+                        <td class="small fw-bold whitespace-nowrap text-nowrap">{{ l.dias_para_vencer }}d</td>
                         <td>
                             {% if l.en_cuarentena %}
                             <span class="badge bg-dark">CUARENTENA / BAJA</span>
@@ -124,7 +135,7 @@
                             {% if l.en_cuarentena %}
                             <span class="badge bg-secondary">Retirado ({{ l.fecha_cuarentena|date:"d/m/Y" }})</span>
                             {% elif l.esta_vencido %}
-                                {% if user.rol == 'quimico' %}
+                                {% if user.rol == 'admin' or user.rol == 'quimico' %}
                                 <button type="button" class="btn btn-sm btn-danger fw-bold shadow-sm"
                                         data-bs-toggle="modal"
                                         data-bs-target="#modalCuarentena{{ l.pk }}">
@@ -168,7 +179,7 @@
                             {% else %}
                             <div class="d-inline-flex flex-wrap justify-content-end gap-1">
                                 {% if l.ubicacion.tipo == 'bodega' and l.cantidad_actual > 0 %}
-                                    {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
+                                    {% if user.rol == 'admin' or user.rol == 'tecnico' or user.rol == 'quimico' %}
                                     <a href="{% url 'farmacia:traspaso' %}?lote={{ l.pk }}" class="btn btn-sm btn-cesfam">
                                         <i class="bi bi-arrow-left-right me-1"></i>Traspasar a Vitrina
                                     </a>
@@ -186,6 +197,7 @@
                     {% endfor %}
                     </tbody>
                 </table>
+            </div>
             </div>
         </div>
     </div>

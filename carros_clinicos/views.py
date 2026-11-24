@@ -372,8 +372,8 @@ def item_plantilla_eliminar(request, pk, item_pk):
 
 
 @rol_requerido(
-    'clinico', 'quimico',
-    motivo='Solo el Personal Clínico (o supervisión farmacéutica) puede registrar consumos clínicos en Carro de Paro y Carro Unidosis. El Administrador no puede registrar consumos.'
+    'admin', 'clinico', 'quimico',
+    motivo='Solo el Personal Clínico, el Químico Farmacéutico o el Administrador (Docente) pueden registrar consumos en Carro de Paro y Carro Unidosis.'
 )
 @transaction.atomic
 def registrar_consumo(request, pk):
@@ -446,8 +446,8 @@ def registrar_consumo(request, pk):
 
 
 @rol_requerido(
-    'tecnico', 'quimico',
-    motivo='Solo el Técnico en Farmacia y el Químico Farmacéutico pueden ejecutar la reposición física y nuevo sellado de Carros Clínicos.'
+    'admin', 'tecnico', 'quimico',
+    motivo='Solo el Técnico en Farmacia, el Químico Farmacéutico o el Administrador (Docente) pueden ejecutar la reposición física y nuevo sellado de Carros Clínicos.'
 )
 @transaction.atomic
 def reponer_carro(request, pk):

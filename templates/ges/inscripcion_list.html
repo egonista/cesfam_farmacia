@@ -73,12 +73,12 @@
                     <tbody>
                         {% for insc in inscripciones %}
                         <tr>
-                            <td><span class="badge bg-dark">{{ insc.patologia.codigo }}</span></td>
+                            <td class="whitespace-nowrap text-nowrap"><span class="badge bg-dark">{{ insc.patologia.codigo }}</span></td>
                             <td><strong class="text-primary">{{ insc.patologia.nombre }}</strong></td>
                             <td>{{ insc.paciente.nombre_completo }}</td>
-                            <td><code>{{ insc.paciente.rut }}</code></td>
-                            <td>{{ insc.fecha_inscripcion|date:"d/m/Y" }}</td>
-                            <td><small>{{ insc.fecha_inicio_periodo|date:"d/m/Y" }} al {{ insc.fecha_fin_periodo|date:"d/m/Y" }}</small></td>
+                            <td class="whitespace-nowrap text-nowrap"><code>{{ insc.paciente.rut }}</code></td>
+                            <td class="whitespace-nowrap text-nowrap">{{ insc.fecha_inscripcion|date:"d/m/Y" }}</td>
+                            <td class="whitespace-nowrap text-nowrap"><small>{{ insc.fecha_inicio_periodo|date:"d/m/Y" }} al {{ insc.fecha_fin_periodo|date:"d/m/Y" }}</small></td>
                             <td>
                                 {% if insc.activa %}
                                 <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Activa</span>

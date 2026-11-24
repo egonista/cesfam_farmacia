@@ -594,13 +594,12 @@ class PruebasIntegralesCESFAM(TestCase):
             rol=Usuario.Rol.QUIMICO_FARMACEUTICO
         )
 
-        # Administrador: SÍ gestiona usuarios y auditoría (200), pero NO dispensa (403), NO opera libro controlados (403) y NO registra consumos en carro (403)
+        # Administrador: SÍ gestiona usuarios, auditoría y preparación de carros (200/302), pero NO dispensa (403) ni opera libro controlados (403)
         self.client.login(username='admin_test_rbac', password='Password123!')
         self.assertEqual(self.client.get(reverse('core:usuario_list')).status_code, 200)
         self.assertEqual(self.client.get(reverse('core:auditoria_list')).status_code, 200)
         self.assertEqual(self.client.get(reverse('dispensacion:dispensar')).status_code, 403)
         self.assertEqual(self.client.get(reverse('controlados:libro')).status_code, 403)
-        self.assertEqual(self.client.post(url_consumo, {'item': item_carro.id, 'cantidad': 1, 'motivo': 'Test'}).status_code, 403)
 
         # Químico Farmacéutico: SÍ opera libro controlados (200), dispensación (200) y reportes (200), pero NO gestiona usuarios (403)
         self.client.login(username='qf_test_rbac', password='Password123!')
@@ -2348,6 +2347,878 @@ class PruebasIntegralesCESFAM(TestCase):
         )
         self.client.post(reverse('carros_clinicos:carro_eliminar', args=[carro_sin_hist.pk]), {'modo': 'eliminar'})
         self.assertFalse(CarroClinico.objects.filter(pk=carro_sin_hist.pk).exists())
+
+    def test_gestion_usuarios_seccion_filtros_acciones_masivas_e_importacion_segura(self):
+        """
+        Verifica el módulo mejorado de Gestión de Usuarios (/usuarios/):
+        1) RBAC estricto (403 para roles no Administrador en listado, plantillas e importación).
+        2) Campo sección, barra de filtros (q, seccion, rol, estado), PIN CONTROLADOS solo Q.F.
+        3) Creación con checkbox 'Usar RUT como contraseña inicial' + edición de sección.
+        4) Acciones masivas (cambiar rol, desactivar, activar) protegiendo al admin actual y auditadas.
+        5) Descarga de plantillas (.csv y .xlsx) válidas.
+        6) Validación estricta de seguridad en importación (rechazo de extensiones, >2 MB,
+           archivos renombrados, macros, scripts, columnas faltantes, fórmulas y filas con error sin crear nada).
+        7) Importación masiva exitosa en .csv (;) y .xlsx con contraseña = RUT sin puntos ni guion.
+        """
+        import io
+        import zipfile
+        import openpyxl
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from core.models import AuditoriaInmutable
+
+        admin_u = Usuario.objects.create_user(
+            username='admin_usr_mod',
+            password='Password123!',
+            rut='19.222.333-4',
+            first_name='Docente',
+            last_name='Coordinador',
+            seccion='Docencia',
+            rol=Usuario.Rol.ADMINISTRADOR,
+        )
+        qf_u = Usuario.objects.create_user(
+            username='qf_usr_mod',
+            password='Password123!',
+            rut='18.333.444-1',
+            first_name='Elena',
+            last_name='Vargas',
+            seccion='AP-N4-C1',
+            rol=Usuario.Rol.QUIMICO_FARMACEUTICO,
+        )
+        tec_u = Usuario.objects.get(username='tecnico_test')
+        tec_u.seccion = 'AP-N4-C1'
+        tec_u.save(update_fields=['seccion'])
+
+        url_list = reverse('core:usuario_list')
+        url_tpl_csv = reverse('core:usuario_descargar_plantilla', args=['csv'])
+        url_tpl_xlsx = reverse('core:usuario_descargar_plantilla', args=['xlsx'])
+        url_import = reverse('core:usuario_importar_curso')
+
+        # 1. RBAC: Técnico bloqueado con 403 en todas las rutas del módulo
+        self.client.login(username='tecnico_test', password='Password123!')
+        self.assertEqual(self.client.get(url_list).status_code, 403)
+        self.assertEqual(self.client.get(url_tpl_csv).status_code, 403)
+        self.assertEqual(self.client.get(url_tpl_xlsx).status_code, 403)
+        self.assertEqual(self.client.post(url_import, {}).status_code, 403)
+
+        # 2. Admin accede y visualiza sección, PIN Controlados solo Q.F., modales y botón ojo/checkbox RUT
+        self.client.login(username='admin_usr_mod', password='Password123!')
+        resp_list = self.client.get(url_list)
+        self.assertEqual(resp_list.status_code, 200)
+        html_list = resp_list.content.decode()
+        self.assertIn('Sección / Curso', html_list)
+        self.assertIn('Importar Curso (Excel/CSV)', html_list)
+        self.assertIn('Usar RUT (sin puntos ni guion) como contraseña inicial', html_list)
+        self.assertIn('btnToggleNuevoPassword', html_list)
+        self.assertEqual(html_list.count('</i>Habilitado</span>'), 1)  # Solo qf_usr_mod
+        self.assertIn('No aplica', html_list)
+
+        # 3. Crear usuario con checkbox usar_rut_como_password + sección
+        resp_create = self.client.post(url_list, {
+            'username': 'est_rut_pwd',
+            'rut': '17.444.555-9',
+            'first_name': 'Sofía',
+            'last_name': 'Paredes',
+            'email': 'sofia.paredes@inacapmail.cl',
+            'telefono': '+56911112222',
+            'seccion': 'Sección 001D',
+            'rol': Usuario.Rol.PERSONAL_CLINICO,
+            'usar_rut_como_password': 'on',
+            'password': '',
+        })
+        self.assertEqual(resp_create.status_code, 302)
+        est_u = Usuario.objects.get(username='est_rut_pwd')
+        self.assertEqual(est_u.seccion, 'Sección 001D')
+        self.assertTrue(est_u.check_password('174445559'))
+
+        # 4. Filtros (q, seccion, rol, estado)
+        html_sec = self.client.get(f'{url_list}?seccion=Secci%C3%B3n+001D').content.decode()
+        self.assertIn('est_rut_pwd', html_sec)
+        self.assertNotIn('qf_usr_mod', html_sec)
+
+        html_rol = self.client.get(f'{url_list}?rol=quimico').content.decode()
+        self.assertIn('qf_usr_mod', html_rol)
+        self.assertNotIn('est_rut_pwd', html_rol)
+
+        html_q = self.client.get(f'{url_list}?q=174445559').content.decode()
+        self.assertIn('est_rut_pwd', html_q)
+
+        # 5. Acciones masivas (protegiendo al admin actual)
+        self.client.post(url_list, {
+            'accion_post': 'accion_masiva',
+            'tipo_masivo': 'cambiar_rol',
+            'nuevo_rol_masivo': Usuario.Rol.QUIMICO_FARMACEUTICO,
+            'usuario_ids': [str(admin_u.pk), str(est_u.pk)],
+        })
+        admin_u.refresh_from_db()
+        est_u.refresh_from_db()
+        self.assertEqual(admin_u.rol, Usuario.Rol.ADMINISTRADOR)  # Admin protegido
+        self.assertEqual(est_u.rol, Usuario.Rol.QUIMICO_FARMACEUTICO)
+        self.assertTrue(bool(est_u.pin_seguridad))
+
+        self.client.post(url_list, {
+            'accion_post': 'accion_masiva',
+            'tipo_masivo': 'desactivar',
+            'usuario_ids': [str(admin_u.pk), str(est_u.pk)],
+        })
+        admin_u.refresh_from_db()
+        est_u.refresh_from_db()
+        self.assertTrue(admin_u.is_active)
+        self.assertFalse(est_u.is_active)
+
+        html_inact = self.client.get(f'{url_list}?estado=inactivo').content.decode()
+        self.assertIn('est_rut_pwd', html_inact)
+        self.assertNotIn('qf_usr_mod', html_inact)
+
+        self.client.post(url_list, {
+            'accion_post': 'accion_masiva',
+            'tipo_masivo': 'activar',
+            'usuario_ids': [str(est_u.pk)],
+        })
+        est_u.refresh_from_db()
+        self.assertTrue(est_u.is_active)
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion__startswith='Acción masiva:').count() >= 3)
+
+        # 6. Descarga de plantillas .csv y .xlsx
+        resp_csv = self.client.get(url_tpl_csv)
+        self.assertEqual(resp_csv.status_code, 200)
+        self.assertIn('rut,nombres,apellidos,correo,telefono,seccion,rol', resp_csv.content.decode('utf-8-sig'))
+
+        resp_xlsx = self.client.get(url_tpl_xlsx)
+        self.assertEqual(resp_xlsx.status_code, 200)
+        self.assertTrue(resp_xlsx.content.startswith(b'PK\x03\x04'))
+
+        # 7. Validación estricta de seguridad en archivos inválidos (0 usuarios creados)
+        conteo_antes = Usuario.objects.count()
+
+        # 7a) Extensión prohibida (.exe)
+        f_exe = SimpleUploadedFile('malware.exe', b'MZ\x90\x00fake', content_type='application/octet-stream')
+        self.client.post(url_import, {'archivo_curso': f_exe})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7b) Doble extensión peligrosa (.php.csv)
+        f_doble = SimpleUploadedFile('shell.php.csv', b'rut,nombres,apellidos,correo,telefono,seccion,rol\n', content_type='text/csv')
+        self.client.post(url_import, {'archivo_curso': f_doble})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7c) Archivo > 2 MB
+        f_grande = SimpleUploadedFile('grande.csv', b'a' * (2 * 1024 * 1024 + 50), content_type='text/csv')
+        self.client.post(url_import, {'archivo_curso': f_grande})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7d) Texto/script renombrado a .xlsx
+        f_fake_xlsx = SimpleUploadedFile('curso.xlsx', b'not a real excel file <script>alert(1)</script>', content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.client.post(url_import, {'archivo_curso': f_fake_xlsx})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7e) .xlsx con macro xl/vbaProject.bin incrustado
+        buf_macro = io.BytesIO()
+        with zipfile.ZipFile(buf_macro, 'w') as zf:
+            zf.writestr('[Content_Types].xml', '<Types/>')
+            zf.writestr('xl/workbook.xml', '<workbook/>')
+            zf.writestr('xl/vbaProject.bin', b'fake-macro')
+        f_macro = SimpleUploadedFile('macro.xlsx', buf_macro.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.client.post(url_import, {'archivo_curso': f_macro})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7f) Binario PE renombrado a .csv
+        f_bin_csv = SimpleUploadedFile('binario.csv', b'MZ\x90\x00\x03\x00\x00\x00', content_type='text/csv')
+        self.client.post(url_import, {'archivo_curso': f_bin_csv})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7g) Script XSS dentro de .csv
+        f_xss = SimpleUploadedFile('xss.csv', b'rut,nombres,apellidos,correo,telefono,seccion,rol\n20.123.456-5,<script>alert(1)</script>,Lopez,,,AP-N4-C1,tecnico\n', content_type='text/csv')
+        self.client.post(url_import, {'archivo_curso': f_xss})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7h) Columnas faltantes
+        f_cols = SimpleUploadedFile('cols.csv', b'rut,nombres,rol\n20.123.456-5,Ana,tecnico\n', content_type='text/csv')
+        self.client.post(url_import, {'archivo_curso': f_cols})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7i) Inyección de fórmula (=CMD)
+        f_formula = SimpleUploadedFile('formula.csv', b'rut,nombres,apellidos,correo,telefono,seccion,rol\n20.123.456-5,=CMD|calc,Rojas,,,AP-N4-C1,tecnico\n', content_type='text/csv')
+        self.client.post(url_import, {'archivo_curso': f_formula})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 7j) Atomicidad: 1 fila válida + 1 fila con RUT inválido -> 0 registros creados
+        csv_mixto = (
+            'rut,nombres,apellidos,correo,telefono,seccion,rol\n'
+            '20.123.456-5,Camila,Rojas,camila@inacapmail.cl,+56911111111,AP-N4-C1,tecnico\n'
+            '11.111.111-9,Error,RUT,err@inacapmail.cl,,AP-N4-C1,tecnico\n'
+        ).encode('utf-8')
+        f_mixto = SimpleUploadedFile('mixto.csv', csv_mixto, content_type='text/csv')
+        self.client.post(url_import, {'archivo_curso': f_mixto})
+        self.assertEqual(Usuario.objects.count(), conteo_antes)
+
+        # 8. Importación válida .csv (delimitador ';')
+        csv_ok = (
+            'rut;nombres;apellidos;correo;telefono;seccion;rol\n'
+            '20.123.456-5;Camila Andrea;Rojas Muñoz;camila.rojas@inacapmail.cl;+56981234567;AP-N4-C1;tecnico\n'
+            '21.234.567-9;Matías Ignacio;Fuentes Díaz;matias.fuentes@inacapmail.cl;+56987654321;AP-N4-C1;quimico\n'
+        ).encode('utf-8-sig')
+        f_csv_ok = SimpleUploadedFile('curso_ap_n4.csv', csv_ok, content_type='text/csv')
+        resp_imp_csv = self.client.post(url_import, {'archivo_curso': f_csv_ok})
+        self.assertEqual(resp_imp_csv.status_code, 302)
+        self.assertEqual(Usuario.objects.count(), conteo_antes + 2)
+        camila = Usuario.objects.get(rut='20.123.456-5')
+        matias = Usuario.objects.get(rut='21.234.567-9')
+        self.assertEqual(camila.seccion, 'AP-N4-C1')
+        self.assertTrue(camila.check_password('201234565'))
+        self.assertEqual(matias.rol, Usuario.Rol.QUIMICO_FARMACEUTICO)
+        self.assertTrue(matias.check_password('212345679'))
+        self.assertTrue(bool(matias.pin_seguridad))
+
+        # 9. Importación válida .xlsx usando seccion_defecto cuando la celda está vacía
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['rut', 'nombres', 'apellidos', 'correo', 'telefono', 'seccion', 'rol'])
+        ws.append(['16.555.666-6', 'Diego', 'Navarro', 'diego@inacapmail.cl', '+56933334444', '', 'clinico'])
+        buf_xlsx = io.BytesIO()
+        wb.save(buf_xlsx)
+        f_xlsx_ok = SimpleUploadedFile(
+            'curso_excel.xlsx',
+            buf_xlsx.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        resp_imp_xlsx = self.client.post(url_import, {
+            'archivo_curso': f_xlsx_ok,
+            'seccion_defecto': 'Sección 002V',
+        })
+        self.assertEqual(resp_imp_xlsx.status_code, 302)
+        diego = Usuario.objects.get(rut='16.555.666-6')
+        self.assertEqual(diego.seccion, 'Sección 002V')
+        self.assertEqual(diego.rol, Usuario.Rol.PERSONAL_CLINICO)
+        self.assertTrue(diego.check_password('165556666'))
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion='Importación masiva de curso (CSV/XLSX)').count() >= 2)
+
+    def test_crud_secciones_curso_y_edicion_completa_usuario(self):
+        """
+        Verifica el CRUD completo de SeccionCurso (Crear, Ver, Editar/Renombrar con propagación
+        a usuarios y Eliminar reasignando a Sin sección) y la edición integral de Usuario
+        (Nombres, Apellidos, RUT, Teléfono, Correo, Rol, Sección, Estado y contraseña opcional).
+        """
+        from core.models import SeccionCurso, AuditoriaInmutable
+
+        admin_u = Usuario.objects.create_user(
+            username='admin_sec_crud',
+            password='Password123!',
+            rut='15.666.777-3',
+            first_name='Admin',
+            last_name='Secciones',
+            seccion='Docencia',
+            rol=Usuario.Rol.ADMINISTRADOR,
+        )
+        est_u = Usuario.objects.create_user(
+            username='est_sec_crud',
+            password='Password123!',
+            rut='14.555.666-K',
+            first_name='Lucía',
+            last_name='Méndez',
+            email='lucia@inacapmail.cl',
+            telefono='+56911110000',
+            seccion='AP-N4-C1',
+            rol=Usuario.Rol.TECNICO_FARMACIA,
+        )
+
+        # 1. Las secciones base deben existir automáticamente desde la migración
+        sec_docencia = SeccionCurso.objects.get(nombre__iexact='Docencia')
+        sec_ap = SeccionCurso.objects.get(nombre__iexact='AP-N4-C1')
+
+        url_list = reverse('core:usuario_list')
+        url_sec_crear = reverse('core:seccion_crear')
+        url_sec_edit_ap = reverse('core:seccion_editar', args=[sec_ap.pk])
+        url_sec_del_ap = reverse('core:seccion_eliminar', args=[sec_ap.pk])
+
+        # 2. RBAC 403 para roles no Administrador en todos los endpoints de Secciones
+        self.client.login(username='tecnico_test', password='Password123!')
+        self.assertEqual(self.client.post(url_sec_crear, {'nombre': 'Hack-01'}).status_code, 403)
+        self.assertEqual(self.client.post(url_sec_edit_ap, {'nombre': 'Hack-Edit'}).status_code, 403)
+        self.assertEqual(self.client.post(url_sec_del_ap, {}).status_code, 403)
+
+        # 3. Admin visualiza modal Gestionar Secciones y selectores dinámicos
+        self.client.login(username='admin_sec_crud', password='Password123!')
+        html_list = self.client.get(url_list).content.decode()
+        self.assertIn('Gestionar Secciones', html_list)
+        self.assertIn('Docencia', html_list)
+        self.assertIn('AP-N4-C1', html_list)
+
+        # 4. Crear sección: rechaza vacío y duplicado case-insensitive, crea nueva válida
+        conteo_sec = SeccionCurso.objects.count()
+        self.client.post(url_sec_crear, {'nombre': '   ', 'descripcion': 'Vacío'})
+        self.assertEqual(SeccionCurso.objects.count(), conteo_sec)
+
+        self.client.post(url_sec_crear, {'nombre': 'ap-n4-c1', 'descripcion': 'Duplicado'})
+        self.assertEqual(SeccionCurso.objects.count(), conteo_sec)
+
+        resp_new_sec = self.client.post(url_sec_crear, {
+            'nombre': 'Sección 002V',
+            'descripcion': 'Taller Vespertino Farmacia',
+            'activa': 'on',
+        })
+        self.assertEqual(resp_new_sec.status_code, 302)
+        sec_002v = SeccionCurso.objects.get(nombre='Sección 002V')
+        self.assertEqual(sec_002v.descripcion, 'Taller Vespertino Farmacia')
+        self.assertTrue(sec_002v.activa)
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion='Creación de Sección / Curso').exists())
+
+        # 5. Editar/Renombrar una sección existente (AP-N4-C1) actualiza automáticamente a sus usuarios
+        # Bloquea renombre duplicado case-insensitive
+        self.client.post(url_sec_edit_ap, {
+            'nombre': 'docencia',
+            'descripcion': 'Choque nombre',
+            'activa': 'on',
+        })
+        sec_ap.refresh_from_db()
+        self.assertEqual(sec_ap.nombre, 'AP-N4-C1')
+
+        # Renombre válido + actualización de descripción y estado
+        resp_ren = self.client.post(url_sec_edit_ap, {
+            'nombre': 'AP-N4-C1-2026',
+            'descripcion': 'Cohorte actualizada 2026',
+            'activa': 'on',
+        })
+        self.assertEqual(resp_ren.status_code, 302)
+        sec_ap.refresh_from_db()
+        est_u.refresh_from_db()
+        self.assertEqual(sec_ap.nombre, 'AP-N4-C1-2026')
+        self.assertEqual(sec_ap.descripcion, 'Cohorte actualizada 2026')
+        self.assertEqual(est_u.seccion, 'AP-N4-C1-2026')
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion='Edición de Sección / Curso').exists())
+
+        # 6. Eliminar sección con usuarios asignados: NO borra usuarios, los reasigna a Sin sección ('')
+        resp_del = self.client.post(url_sec_del_ap, {})
+        self.assertEqual(resp_del.status_code, 302)
+        self.assertFalse(SeccionCurso.objects.filter(pk=sec_ap.pk).exists())
+        est_u.refresh_from_db()
+        self.assertEqual(est_u.seccion, '')
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion='Eliminación de Sección / Curso').exists())
+
+        # 7. Edición completa de Usuario: todos los campos + estado + contraseña opcional
+        resp_edit_u = self.client.post(url_list, {
+            'accion_post': 'editar_usuario',
+            'usuario_id': str(est_u.pk),
+            'first_name': 'Lucía Elena',
+            'last_name': 'Méndez Torres',
+            'rut': '13.444.555-6',
+            'telefono': '+56922223333',
+            'email': 'lucia.mendez@cesfam.cl',
+            'rol': Usuario.Rol.QUIMICO_FARMACEUTICO,
+            'seccion': 'Sección 002V',
+            'estado': 'inactivo',
+            'nueva_password': 'NuevaClave2026!',
+        })
+        self.assertEqual(resp_edit_u.status_code, 302)
+        est_u.refresh_from_db()
+        self.assertEqual(est_u.first_name, 'Lucía Elena')
+        self.assertEqual(est_u.last_name, 'Méndez Torres')
+        self.assertEqual(est_u.rut, '13.444.555-6')
+        self.assertEqual(est_u.telefono, '+56922223333')
+        self.assertEqual(est_u.email, 'lucia.mendez@cesfam.cl')
+        self.assertEqual(est_u.rol, Usuario.Rol.QUIMICO_FARMACEUTICO)
+        self.assertEqual(est_u.seccion, 'Sección 002V')
+        self.assertFalse(est_u.is_active)
+        self.assertFalse(est_u.activo_sistema)
+        self.assertTrue(est_u.check_password('NuevaClave2026!'))
+        self.assertTrue(bool(est_u.pin_seguridad))
+
+        # Editar dejando nueva_password vacío mantiene la contraseña actual y permite reactivar
+        self.client.post(url_list, {
+            'accion_post': 'editar_usuario',
+            'usuario_id': str(est_u.pk),
+            'first_name': 'Lucía Elena',
+            'last_name': 'Méndez Torres',
+            'rut': '13.444.555-6',
+            'telefono': '+56922223333',
+            'email': 'lucia.mendez@cesfam.cl',
+            'rol': Usuario.Rol.PERSONAL_CLINICO,
+            'seccion': '',
+            'estado': 'activo',
+            'nueva_password': '',
+        })
+        est_u.refresh_from_db()
+        self.assertTrue(est_u.is_active)
+        self.assertEqual(est_u.seccion, '')
+        self.assertEqual(est_u.rol, Usuario.Rol.PERSONAL_CLINICO)
+        self.assertTrue(est_u.check_password('NuevaClave2026!'))
+
+        # Admin editando su propia cuenta no puede desactivarse a sí mismo
+        self.client.post(url_list, {
+            'accion_post': 'editar_usuario',
+            'usuario_id': str(admin_u.pk),
+            'first_name': 'Admin',
+            'last_name': 'Secciones',
+            'rut': '15.666.777-3',
+            'telefono': '+56900001111',
+            'email': 'admin@cesfam.cl',
+            'rol': Usuario.Rol.ADMINISTRADOR,
+            'seccion': sec_docencia.nombre,
+            'estado': 'inactivo',
+            'nueva_password': '',
+        })
+        admin_u.refresh_from_db()
+        self.assertTrue(admin_u.is_active)
+
+    def test_filtrado_en_vivo_en_cinco_vistas_principales(self):
+        """
+        Verifica que las 5 vistas principales incluyan el motor reutilizable data-live-filter
+        (debounce 300ms, botón Limpiar dinámico y contenedor de resultados) y respondan 200
+        a peticiones AJAX de filtrado sin errores.
+        """
+        admin_u = Usuario.objects.create_user(
+            username='admin_live_flt',
+            password='Password123!',
+            rut='12.345.678-5',
+            first_name='Admin',
+            last_name='Live',
+            rol=Usuario.Rol.ADMINISTRADOR,
+        )
+
+        # 1. Admin: Usuarios, Lotes, Arsenal, Pacientes
+        self.client.login(username='admin_live_flt', password='Password123!')
+        vistas_admin = [
+            (reverse('core:usuario_list'), '#liveResultsUsuarios', '?q=admin&rol=admin'),
+            (reverse('farmacia:lote_list'), '#liveResultsLotes', '?q=AML&alerta=30'),
+            (reverse('farmacia:medicamento_list'), '#liveResultsMedicamentos', '?q=Amlodipino&quiebre=1'),
+            (reverse('core:paciente_list'), '#liveResultsPacientes', '?q=Juan'),
+        ]
+        for url, target_id, qs in vistas_admin:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200)
+            html = resp.content.decode()
+            self.assertIn(f'data-live-filter="{target_id}"', html)
+            self.assertIn('data-live-debounce="300"', html)
+            self.assertIn('data-live-filter-clear', html)
+            self.assertIn(f'id="{target_id[1:]}"', html)
+
+            resp_ajax = self.client.get(f'{url}{qs}', HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+            self.assertEqual(resp_ajax.status_code, 200)
+            self.assertIn(f'id="{target_id[1:]}"', resp_ajax.content.decode())
+
+        # 2. Técnico: Ventanilla de Dispensación
+        self.client.login(username='tecnico_test', password='Password123!')
+        url_disp = reverse('dispensacion:dispensar')
+        resp_disp = self.client.get(url_disp)
+        self.assertEqual(resp_disp.status_code, 200)
+        html_disp = resp_disp.content.decode()
+        self.assertIn('data-live-filter="#liveResultsVentanilla"', html_disp)
+        self.assertIn('data-live-debounce="300"', html_disp)
+        self.assertIn('data-live-filter-clear', html_disp)
+        self.assertIn('id="liveResultsVentanilla"', html_disp)
+
+        resp_disp_ajax = self.client.get(f'{url_disp}?filtro=todas&q=REC', HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp_disp_ajax.status_code, 200)
+        self.assertIn('id="liveResultsVentanilla"', resp_disp_ajax.content.decode())
+
+    def test_crud_arsenal_lote_inicial_en_un_paso_y_suero_limpio(self):
+        """
+        Verifica:
+        1) RBAC 403 para Técnico y Clínico al crear/editar medicamentos en Arsenal (/farmacia/medicamentos/ y /farmacia/arsenal/).
+        2) Alta ágil en 1 paso: crea Medicamento + Lote FEFO + MovimientoStock (Kardex) + Auditoría en una sola transacción.
+        3) Rollback atómico si el lote inicial tiene datos inválidos (no deja medicamento huérfano).
+        4) Edición directa desde la tabla del Arsenal (Admin y Q.F.) con auditoría.
+        5) Confirmación de permisos de ingreso de lotes (Técnico solo no-controlados; Admin y Q.F. cualquiera incluyendo controlados).
+        6) Corrección de texto duplicado en INS-CLI-001 (Suero Fisiológico NaCl / 0,9% (500 ml)).
+        """
+        from farmacia.models import Ubicacion, MovimientoStock, CategoriaMedicamento
+        from controlados.models import LibroControlados
+        from core.models import AuditoriaInmutable
+
+        hoy = date.today()
+        bodega = Ubicacion.objects.create(nombre='Bodega Central Arsenal Test', tipo=Ubicacion.TipoUbicacion.BODEGA)
+        cat = self.medicamento.categoria
+
+        qf_u = Usuario.objects.create_user(
+            username='qf_arsenal_crud',
+            password='Password123!',
+            rut='11.333.555-3',
+            first_name='Químico',
+            last_name='Arsenal',
+            rol=Usuario.Rol.QUIMICO_FARMACEUTICO,
+        )
+        admin_u = Usuario.objects.create_user(
+            username='admin_arsenal_crud',
+            password='Password123!',
+            rut='12.444.666-8',
+            first_name='Admin',
+            last_name='Arsenal',
+            rol=Usuario.Rol.ADMINISTRADOR,
+        )
+        clin_u = Usuario.objects.create_user(
+            username='clin_arsenal_crud',
+            password='Password123!',
+            rut='13.555.777-2',
+            first_name='Enfermera',
+            last_name='Arsenal',
+            rol=Usuario.Rol.PERSONAL_CLINICO,
+        )
+
+        url_arsenal = reverse('farmacia:medicamento_list')
+        url_arsenal_alias = reverse('farmacia:arsenal')
+
+        # 1. Técnico y Clínico reciben 403 al intentar crear o editar en Arsenal
+        for uname in ('tecnico_test', 'clin_arsenal_crud'):
+            self.client.login(username=uname, password='Password123!')
+            html_ver = self.client.get(url_arsenal).content.decode()
+            self.assertNotIn('+ Nuevo Medicamento / Insumo', html_ver)
+            self.assertNotIn('modalEditarMedicamento', html_ver)
+            self.assertEqual(self.client.post(url_arsenal, {'accion': 'crear', 'codigo': 'HACK-01'}).status_code, 403)
+            self.assertEqual(self.client.post(url_arsenal, {
+                'accion': 'editar_medicamento',
+                'medicamento_id': self.medicamento.pk,
+                'codigo': 'HACK-02',
+            }).status_code, 403)
+
+        # 2. Q.F. accede por /farmacia/arsenal/ y ve botones Crear + Editar
+        self.client.login(username='qf_arsenal_crud', password='Password123!')
+        resp_alias = self.client.get(url_arsenal_alias)
+        self.assertEqual(resp_alias.status_code, 200)
+        html_qf = resp_alias.content.decode()
+        self.assertIn('+ Nuevo Medicamento / Insumo', html_qf)
+        self.assertIn('Ingresar lote / stock inicial ahora (1 paso)', html_qf)
+        self.assertIn('modalEditarMedicamento', html_qf)
+
+        # 3. Rollback atómico: si falla el lote inicial (venc <= fab), NO se crea el medicamento
+        self.client.post(url_arsenal, {
+            'accion': 'crear',
+            'codigo': 'MED-ROLLBACK-01',
+            'nombre_generico': 'Fármaco Rollback',
+            'concentracion': '500 mg',
+            'forma_farmaceutica': 'Comprimido',
+            'unidad_medida': 'comp',
+            'categoria': cat.pk,
+            'stock_minimo': '20',
+            'stock_maximo': '500',
+            'ingresar_lote_inicial': 'on',
+            'numero_lote': 'L-MAL-01',
+            'fecha_fabricacion': hoy.isoformat(),
+            'fecha_vencimiento': (hoy - timedelta(days=5)).isoformat(),
+            'cantidad_inicial': '100',
+            'ubicacion_lote': bodega.pk,
+            'motivo_lote': 'Prueba rollback',
+        })
+        self.assertFalse(Medicamento.objects.filter(codigo='MED-ROLLBACK-01').exists())
+        self.assertFalse(Lote.objects.filter(numero_lote='L-MAL-01').exists())
+
+        # 4. Alta ágil en 1 paso (medicamento + lote FEFO + Kardex + auditoría)
+        resp_1paso = self.client.post(url_arsenal, {
+            'accion': 'crear',
+            'codigo': 'MED-ANT-001',
+            'nombre_generico': 'Amoxicilina Trihidrato',
+            'nombre_comercial': 'Amoval Genérico',
+            'concentracion': '500 mg',
+            'forma_farmaceutica': 'Cápsula',
+            'unidad_medida': 'cap',
+            'categoria': cat.pk,
+            'stock_minimo': '50',
+            'stock_maximo': '1000',
+            'ingresar_lote_inicial': 'on',
+            'numero_lote': 'AMX-2026-01',
+            'fecha_fabricacion': (hoy - timedelta(days=15)).isoformat(),
+            'fecha_vencimiento': (hoy + timedelta(days=365)).isoformat(),
+            'cantidad_inicial': '250',
+            'ubicacion_lote': bodega.pk,
+            'motivo_lote': 'Ingreso inicial al Arsenal / Remesa CENABAST',
+        })
+        self.assertEqual(resp_1paso.status_code, 302)
+        med_nuevo = Medicamento.objects.get(codigo='MED-ANT-001')
+        lote_nuevo = Lote.objects.get(medicamento=med_nuevo, numero_lote='AMX-2026-01')
+        self.assertEqual(lote_nuevo.cantidad_actual, 250)
+        self.assertTrue(MovimientoStock.objects.filter(lote=lote_nuevo, tipo=MovimientoStock.TipoMovimiento.INGRESO, cantidad=250).exists())
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion='Registro de Medicamento / Insumo en Arsenal con Lote Inicial (RF-03)').exists())
+
+        # 5. Edición desde la tabla del Arsenal por Admin
+        self.client.login(username='admin_arsenal_crud', password='Password123!')
+        resp_edit = self.client.post(url_arsenal, {
+            'accion': 'editar_medicamento',
+            'medicamento_id': med_nuevo.pk,
+            'codigo': 'MED-ANT-001',
+            'nombre_generico': 'Amoxicilina Trihidrato APS',
+            'nombre_comercial': 'CENABAST',
+            'concentracion': '500 mg',
+            'forma_farmaceutica': 'Cápsula dura',
+            'unidad_medida': 'cap',
+            'categoria': cat.pk,
+            'stock_minimo': '80',
+            'stock_maximo': '1500',
+            'es_controlado': 'on',
+        })
+        self.assertEqual(resp_edit.status_code, 302)
+        med_nuevo.refresh_from_db()
+        self.assertEqual(med_nuevo.nombre_generico, 'Amoxicilina Trihidrato APS')
+        self.assertEqual(med_nuevo.stock_minimo, 80)
+        self.assertEqual(med_nuevo.stock_maximo, 1500)
+        self.assertTrue(med_nuevo.es_controlado)
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion='Edición de Medicamento / Insumo en Arsenal (RF-03)').exists())
+
+        # 6. Permisos de ingreso de lotes: Admin ingresa lote controlado (+ LibroControlados), Técnico bloqueado 403 en controlado pero permitido en estándar
+        url_lote_crear = reverse('farmacia:lote_crear')
+        resp_admin_ctrl = self.client.post(url_lote_crear, {
+            'medicamento': med_nuevo.pk,
+            'numero_lote': 'AMX-CTRL-ADM',
+            'fecha_fabricacion': (hoy - timedelta(days=5)).isoformat(),
+            'fecha_vencimiento': (hoy + timedelta(days=300)).isoformat(),
+            'cantidad_inicial': '40',
+            'ubicacion': bodega.pk,
+            'motivo_ingreso': 'Ingreso controlado por Admin',
+        })
+        self.assertEqual(resp_admin_ctrl.status_code, 302)
+        self.assertTrue(LibroControlados.objects.filter(lote__numero_lote='AMX-CTRL-ADM').exists())
+
+        self.client.login(username='tecnico_test', password='Password123!')
+        self.assertEqual(self.client.post(url_lote_crear, {
+            'medicamento': med_nuevo.pk,
+            'numero_lote': 'AMX-TEC-403',
+            'fecha_fabricacion': (hoy - timedelta(days=5)).isoformat(),
+            'fecha_vencimiento': (hoy + timedelta(days=300)).isoformat(),
+            'cantidad_inicial': '10',
+            'ubicacion': bodega.pk,
+            'motivo_ingreso': 'Intento Técnico',
+        }).status_code, 403)
+        self.assertEqual(self.client.post(url_lote_crear, {
+            'medicamento': self.medicamento.pk,
+            'numero_lote': 'AML-TEC-OK',
+            'fecha_fabricacion': (hoy - timedelta(days=5)).isoformat(),
+            'fecha_vencimiento': (hoy + timedelta(days=300)).isoformat(),
+            'cantidad_inicial': '30',
+            'ubicacion': bodega.pk,
+            'motivo_ingreso': 'Ingreso estándar Técnico',
+        }).status_code, 302)
+
+        # 7. Verificar texto limpio en INS-CLI-001 tras seed
+        from django.core.management import call_command
+        call_command('seed_cesfam', preservar_usuarios=True)
+        suero = Medicamento.objects.get(codigo='INS-CLI-001')
+        self.assertEqual(suero.nombre_generico, 'Suero Fisiológico NaCl')
+        self.assertEqual(suero.concentracion, '0,9% (500 ml)')
+
+    def test_permisos_operativos_administrador_docente_sin_romper_rbac(self):
+        """
+        Verifica que el Administrador (Docente) puede ejecutar acciones operativas de preparación
+        en Inventario (Traspaso, Cuarentena, Ajuste Manual), Pedidos CENABAST (Crear/Aprobar/Recepcionar)
+        y Carros Clínicos (Consumo de prueba + Reponer y Sellar), manteniendo intactos todos los
+        bloqueos 403 de Técnico, Clínico y Q.F.
+        """
+        from farmacia.models import Ubicacion, OrdenAbastecimiento
+        from carros_clinicos.models import CarroClinico, PlantillaItemCarro
+        from core.models import AuditoriaInmutable
+
+        hoy = date.today()
+        bodega = Ubicacion.objects.create(nombre='Bodega Admin Prep', tipo=Ubicacion.TipoUbicacion.BODEGA)
+        lote_bod = Lote.objects.create(
+            medicamento=self.medicamento,
+            numero_lote='ADM-BOD-01',
+            fecha_fabricacion=hoy - timedelta(days=20),
+            fecha_vencimiento=hoy + timedelta(days=200),
+            cantidad_inicial=100,
+            cantidad_actual=100,
+            ubicacion=bodega,
+        )
+        lote_venc = Lote.objects.create(
+            medicamento=self.medicamento,
+            numero_lote='ADM-VENC-01',
+            fecha_fabricacion=hoy - timedelta(days=400),
+            fecha_vencimiento=hoy - timedelta(days=5),
+            cantidad_inicial=20,
+            cantidad_actual=20,
+            ubicacion=bodega,
+        )
+        carro = CarroClinico.objects.create(
+            nombre='Carro Docente Test',
+            tipo=CarroClinico.TipoCarro.PARO,
+            ubicacion_fisica='Box Simulación',
+            numero_precinto='PREC-DOC-01',
+        )
+        item_carro = PlantillaItemCarro.objects.create(
+            carro=carro,
+            medicamento=self.medicamento,
+            cantidad_requerida=10,
+            cantidad_actual=10,
+            ubicacion_en_carro='Cajón 1',
+        )
+
+        admin_u = Usuario.objects.create_user(
+            username='admin_ops_docente',
+            password='Password123!',
+            rut='10.222.333-1',
+            first_name='Docente',
+            last_name='Operativo',
+            rol=Usuario.Rol.ADMINISTRADOR,
+        )
+        clin_u = Usuario.objects.create_user(
+            username='clin_ops_check',
+            password='Password123!',
+            rut='10.333.444-3',
+            first_name='Enfermera',
+            last_name='Check',
+            rol=Usuario.Rol.PERSONAL_CLINICO,
+        )
+
+        self.client.login(username='admin_ops_docente', password='Password123!')
+
+        # 1. Inventario: Traspaso Bodega -> Vitrina, Cuarentena y Ajuste Manual
+        html_lotes = self.client.get(reverse('farmacia:lote_list')).content.decode()
+        self.assertIn('Traspaso Bodega → Vitrina', html_lotes)
+        self.assertIn('Traspasar a Vitrina', html_lotes)
+        self.assertIn('Retirar / Dar de Baja (Cuarentena)', html_lotes)
+
+        resp_trasp = self.client.post(reverse('farmacia:traspaso'), {
+            'lote': lote_bod.pk,
+            'destino': self.vitrina.pk,
+            'cantidad': '25',
+            'motivo': 'Preparación vitrina taller',
+        })
+        self.assertEqual(resp_trasp.status_code, 302)
+        lote_bod.refresh_from_db()
+        self.assertEqual(lote_bod.cantidad_actual, 75)
+
+        resp_cuar = self.client.post(reverse('farmacia:lote_cuarentena', args=[lote_venc.pk]), {
+            'motivo': 'Baja de prueba docente',
+        })
+        self.assertEqual(resp_cuar.status_code, 302)
+        lote_venc.refresh_from_db()
+        self.assertTrue(lote_venc.en_cuarentena)
+
+        # 2. Pedidos CENABAST: Crear -> Aprobar -> Recepcionar
+        self.client.post(reverse('farmacia:orden_list'), {
+            'tipo': OrdenAbastecimiento.TipoOrden.CENABAST,
+            'observaciones': 'Remesa docente',
+            'medicamento_id': [str(self.medicamento.pk)],
+            'cantidad_solicitada': ['50'],
+        })
+        orden = OrdenAbastecimiento.objects.latest('id')
+        url_ord = reverse('farmacia:orden_detalle', args=[orden.pk])
+        self.assertEqual(self.client.post(url_ord, {'accion': 'aprobar'}).status_code, 302)
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenAbastecimiento.EstadoOrden.ENVIADA)
+
+        det_ord = orden.detalles.first()
+        self.assertEqual(self.client.post(url_ord, {
+            'accion': 'recepcionar',
+            'guia_despacho': 'GD-DOC-2026',
+            f'lote_{det_ord.pk}': 'LOTE-DOC-99',
+            f'vencimiento_{det_ord.pk}': (hoy + timedelta(days=365)).isoformat(),
+            f'cantidad_{det_ord.pk}': '50',
+        }).status_code, 302)
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenAbastecimiento.EstadoOrden.RECEPCIONADA)
+
+        # 3. Carros Clínicos: Consumo de prueba + Reponer y Sellar Carro
+        html_carro = self.client.get(reverse('carros_clinicos:carro_detalle', args=[carro.pk])).content.decode()
+        self.assertIn('Registrar Consumo Emergencia', html_carro)
+
+        self.assertEqual(self.client.post(reverse('carros_clinicos:registrar_consumo', args=[carro.pk]), {
+            'item': item_carro.pk,
+            'cantidad': '3',
+            'motivo': 'Consumo de prueba docente',
+        }).status_code, 302)
+        item_carro.refresh_from_db()
+        self.assertEqual(item_carro.cantidad_actual, 7)
+
+        self.assertEqual(self.client.post(reverse('carros_clinicos:reponer_carro', args=[carro.pk]), {
+            'item': item_carro.pk,
+            'lote': self.lote.pk,
+            'cantidad': '3',
+            'nuevo_precinto': 'PREC-DOC-02',
+        }).status_code, 302)
+        item_carro.refresh_from_db()
+        carro.refresh_from_db()
+        self.assertEqual(item_carro.cantidad_actual, 10)
+        self.assertEqual(carro.numero_precinto, 'PREC-DOC-02')
+
+        # 4. Separación clínica intacta (Técnico y Clínico conservan sus 403)
+        self.client.login(username='tecnico_test', password='Password123!')
+        self.assertEqual(self.client.post(reverse('farmacia:lote_cuarentena', args=[lote_bod.pk]), {'motivo': 'x'}).status_code, 403)
+        self.assertEqual(self.client.post(reverse('carros_clinicos:registrar_consumo', args=[carro.pk]), {'item': item_carro.pk, 'cantidad': '1', 'motivo': 'x'}).status_code, 403)
+
+        self.client.login(username='clin_ops_check', password='Password123!')
+        self.assertEqual(self.client.post(reverse('carros_clinicos:reponer_carro', args=[carro.pk]), {'item': item_carro.pk, 'lote': self.lote.pk, 'cantidad': '1'}).status_code, 403)
+        self.assertEqual(self.client.get(reverse('farmacia:traspaso')).status_code, 403)
+        self.assertTrue(AuditoriaInmutable.objects.filter(usuario=admin_u).count() >= 5)
+
+    def test_login_inactivo_logout_limpio_auditoria_fecha_y_respaldo_bd(self):
+        """
+        Verifica:
+        1) Login con logo INACAP, mensaje diferenciado para cuenta inactiva vs credenciales inválidas.
+        2) Logout limpia completamente variables de /simular_rol/ en sesión.
+        3) Filtros de Auditoría por usuario, rol y fecha funcionan sin error.
+        4) Descarga de Respaldo BD (JSON válido) exclusiva para Administrador (403 a Q.F., Técnico y Clínico).
+        """
+        import json
+        from core.models import AuditoriaInmutable
+
+        admin_u = Usuario.objects.create_user(
+            username='admin_cierre_test',
+            password='Password123!',
+            rut='10.444.555-5',
+            first_name='Admin',
+            last_name='Cierre',
+            rol=Usuario.Rol.ADMINISTRADOR,
+        )
+        qf_u = Usuario.objects.create_user(
+            username='qf_cierre_test',
+            password='Password123!',
+            rut='10.555.666-7',
+            first_name='QF',
+            last_name='Cierre',
+            rol=Usuario.Rol.QUIMICO_FARMACEUTICO,
+        )
+        inact_u = Usuario.objects.create_user(
+            username='inactivo_cierre_test',
+            password='Password123!',
+            rut='10.666.777-9',
+            first_name='Inactivo',
+            last_name='Test',
+            rol=Usuario.Rol.TECNICO_FARMACIA,
+            is_active=False,
+        )
+
+        # 1. Login muestra logo INACAP y distingue usuario inactivo vs clave mala
+        html_login = self.client.get(reverse('core:login')).content.decode()
+        self.assertIn('inacap_logo.png', html_login)
+
+        resp_inact = self.client.post(reverse('core:login'), {
+            'username': 'inactivo_cierre_test',
+            'password': 'Password123!',
+        })
+        self.assertIn('Esta cuenta se encuentra desactivada', resp_inact.content.decode())
+
+        resp_bad = self.client.post(reverse('core:login'), {
+            'username': 'admin_cierre_test',
+            'password': 'ClaveIncorrecta999',
+        })
+        self.assertIn('Credenciales inválidas', resp_bad.content.decode())
+
+        # 2. Logout limpia variables de /simular_rol/
+        self.client.post(reverse('core:login'), {'username': 'admin_cierre_test', 'password': 'Password123!'})
+        self.assertTrue(self.client.session.get('is_real_admin'))
+        self.client.post(reverse('core:logout'))
+        self.assertNotIn('is_real_admin', self.client.session)
+        self.assertNotIn('rol_simulado', self.client.session)
+        self.assertNotIn('original_admin_id', self.client.session)
+
+        # 3. Filtros de Auditoría (usuario, rol y fecha) + Respaldo BD exclusivo Admin
+        self.client.login(username='admin_cierre_test', password='Password123!')
+        hoy_str = date.today().isoformat()
+        resp_aud = self.client.get(f"{reverse('core:auditoria_list')}?q=admin_cierre_test&rol=admin&fecha={hoy_str}")
+        self.assertEqual(resp_aud.status_code, 200)
+        self.assertIn('Descargar Respaldo BD', resp_aud.content.decode())
+
+        url_respaldo = reverse('core:respaldo_bd')
+        resp_dump = self.client.get(url_respaldo)
+        self.assertEqual(resp_dump.status_code, 200)
+        self.assertIn('application/json', resp_dump['Content-Type'])
+        data_dump = json.loads(resp_dump.content.decode('utf-8'))
+        self.assertIsInstance(data_dump, list)
+        self.assertTrue(len(data_dump) > 0)
+        self.assertTrue(AuditoriaInmutable.objects.filter(accion='Descarga de Respaldo de Base de Datos (JSON)').exists())
+
+        # 4. Q.F. y Técnico bloqueados con 403 en Respaldo BD
+        self.client.login(username='qf_cierre_test', password='Password123!')
+        self.assertEqual(self.client.get(url_respaldo).status_code, 403)
+        self.assertNotIn('Descargar Respaldo BD', self.client.get(reverse('core:auditoria_list')).content.decode())
+
+        self.client.login(username='tecnico_test', password='Password123!')
+        self.assertEqual(self.client.get(url_respaldo).status_code, 403)
 
 
 class PruebasRendimientoCESFAM(TestCase):

@@ -434,6 +434,143 @@
         pollTimer = setInterval(consultarEstadoSimulacion, 4000);
     })();
     </script>
+    <script>
+    /* Motor reutilizable de filtrado automático en vivo (select/checkbox instantáneo + texto 300ms debounce) */
+    (function() {
+        function inicializarFiltrosEnVivo() {
+            const formularios = document.querySelectorAll('form[data-live-filter]');
+            formularios.forEach(function(form) {
+                const targetSelector = form.getAttribute('data-live-filter');
+                if (!targetSelector) return;
+                const debounceMs = parseInt(form.getAttribute('data-live-debounce') || '300', 10);
+                const btnLimpiar = form.querySelector('[data-live-filter-clear]');
+                let debounceTimer = null;
+                let controller = null;
+
+                function tieneFiltrosActivos() {
+                    const campos = form.querySelectorAll('input:not([type="hidden"]), select, textarea');
+                    for (const campo of campos) {
+                        if (campo.disabled) continue;
+                        if (campo.type === 'checkbox' || campo.type === 'radio') {
+                            if (campo.checked) return true;
+                        } else if ((campo.value || '').trim() !== '') {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function actualizarBotonLimpiar() {
+                    if (!btnLimpiar) return;
+                    btnLimpiar.classList.toggle('d-none', !tieneFiltrosActivos());
+                }
+
+                function construirUrl() {
+                    const baseAction = form.getAttribute('action') || window.location.pathname;
+                    const url = new URL(baseAction, window.location.origin);
+                    const params = new URLSearchParams();
+                    const fd = new FormData(form);
+                    for (const [k, v] of fd.entries()) {
+                        const val = String(v || '').trim();
+                        if (val !== '') {
+                            params.append(k, val);
+                        }
+                    }
+                    const qs = params.toString();
+                    return qs ? `${url.pathname}?${qs}` : url.pathname;
+                }
+
+                async function ejecutarFiltro() {
+                    const targetEl = document.querySelector(targetSelector);
+                    if (!targetEl) {
+                        form.submit();
+                        return;
+                    }
+                    const url = construirUrl();
+                    actualizarBotonLimpiar();
+
+                    if (controller) controller.abort();
+                    controller = new AbortController();
+                    targetEl.style.transition = 'opacity 0.15s ease';
+                    targetEl.style.opacity = '0.55';
+
+                    try {
+                        const resp = await fetch(url, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            signal: controller.signal,
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        });
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        const html = await resp.text();
+                        const doc = new DOMParser().parseFromString(html, 'text/html');
+                        const nuevoTarget = doc.querySelector(targetSelector);
+                        if (!nuevoTarget) {
+                            window.location.href = url;
+                            return;
+                        }
+                        targetEl.innerHTML = nuevoTarget.innerHTML;
+                        targetEl.style.opacity = '1';
+                        window.history.replaceState({}, '', url);
+                        document.dispatchEvent(new CustomEvent('cesfam:live-filter-updated', {
+                            detail: { form: form, target: targetEl, url: url }
+                        }));
+                    } catch (err) {
+                        if (err && err.name === 'AbortError') return;
+                        targetEl.style.opacity = '1';
+                        window.location.href = url;
+                    }
+                }
+
+                function programarFiltroTexto() {
+                    actualizarBotonLimpiar();
+                    if (debounceTimer) clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(ejecutarFiltro, debounceMs);
+                }
+
+                form.querySelectorAll('select, input[type="checkbox"], input[type="radio"]').forEach(function(el) {
+                    el.addEventListener('change', function() {
+                        if (debounceTimer) clearTimeout(debounceTimer);
+                        ejecutarFiltro();
+                    });
+                });
+
+                form.querySelectorAll('input[type="text"], input[type="search"], input[type="number"], input[type="date"]').forEach(function(el) {
+                    el.addEventListener('input', programarFiltroTexto);
+                });
+
+                form.addEventListener('submit', function(ev) {
+                    ev.preventDefault();
+                    if (debounceTimer) clearTimeout(debounceTimer);
+                    ejecutarFiltro();
+                });
+
+                if (btnLimpiar) {
+                    btnLimpiar.addEventListener('click', function(ev) {
+                        ev.preventDefault();
+                        if (debounceTimer) clearTimeout(debounceTimer);
+                        form.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(function(campo) {
+                            if (campo.type === 'checkbox' || campo.type === 'radio') {
+                                campo.checked = false;
+                            } else {
+                                campo.value = '';
+                            }
+                        });
+                        ejecutarFiltro();
+                    });
+                }
+
+                actualizarBotonLimpiar();
+            });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', inicializarFiltrosEnVivo);
+        } else {
+            inicializarFiltrosEnVivo();
+        }
+    })();
+    </script>
     {% endif %}
     {% block extra_js %}{% endblock %}
 </body>

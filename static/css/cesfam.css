@@ -365,25 +365,60 @@ body {
     font-weight: 700;
 }
 
-.table-cesfam thead th {
-    background-color: #18181B;
-    color: #FFFFFF;
-    font-weight: 700;
-    font-size: 0.76rem;
+.table-cesfam thead th,
+.table thead.table-light th {
+    background-color: #f8fafc !important;
+    color: #475569 !important;
+    font-weight: 600;
+    font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    border: none;
-    padding: 11px 14px;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0 !important;
+    padding: 10px 14px;
+    white-space: nowrap;
 }
 
 .table-cesfam tbody td {
     padding: 10px 14px;
     vertical-align: middle;
-    border-bottom: 1px solid #F1F5F9;
+    border-bottom: 1px solid #f1f5f9;
 }
 
 .table-cesfam tbody tr:hover {
-    background-color: #F8FAFC;
+    background-color: #f8fafc;
+}
+
+.table code,
+.whitespace-nowrap {
+    white-space: nowrap !important;
+}
+
+/* Barras de pestañas sin scrollbars verticales espurios */
+.nav-tabs.card-header-tabs {
+    overflow-x: auto;
+    overflow-y: hidden !important;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    margin-bottom: -1px;
+}
+
+.nav-tabs.card-header-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+/* Cabeceras de módulo unificadas */
+.page-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.page-header-actions .btn {
+    white-space: nowrap;
 }
 
 /* Semáforo FEFO */
