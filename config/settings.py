@@ -8,11 +8,24 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-cesfam-2026-egon-renato-proyecto-integrado-inacap'
+# Carga liviana de variables desde .env local (opcional, sin dependencias externas)
+_env_file = BASE_DIR / '.env'
+if _env_file.exists():
+    for _raw in _env_file.read_text(encoding='utf-8').splitlines():
+        _line = _raw.strip()
+        if not _line or _line.startswith('#') or '=' not in _line:
+            continue
+        _k, _v = _line.split('=', 1)
+        os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
-DEBUG = True
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-cesfam-2026-egon-renato-proyecto-integrado-inacap',
+)
 
-ALLOWED_HOSTS = ['*']
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
+
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',') if h.strip()]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -56,8 +69,11 @@ TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
         'OPTIONS': {
+            'loaders': [
+                'django.template.loaders.filesystem.Loader',
+                'django.template.loaders.app_directories.Loader',
+            ],
             'context_processors': [
                 'django.template.context_processors.debug',
                 'django.template.context_processors.request',
@@ -71,21 +87,30 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# --- Base de Datos Relacional (PostgreSQL) ---
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'cesfam_farmacia_db',
-        'USER': 'postgres',
-        'PASSWORD': 'Valorant-1',
-        'HOST': 'localhost',
-        'PORT': '5432',
+# --- Base de Datos Relacional (SQLite por defecto para inicio rápido; PostgreSQL vía .env) ---
+DB_ENGINE = os.environ.get('DB_ENGINE', 'sqlite').strip().lower()
+if DB_ENGINE == 'postgresql':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'cesfam_farmacia_db'),
+            'USER': os.environ.get('DB_USER', 'postgres'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
-# --- Base de Datos Documental (MongoDB) ---
-MONGODB_URI = 'mongodb://localhost:27017/'
-MONGODB_NAME = 'cesfam_nosql_db'
+# --- Base de Datos Documental (MongoDB opcional con fallback local) ---
+MONGODB_URI = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/')
+MONGODB_NAME = os.environ.get('MONGODB_NAME', 'cesfam_nosql_db')
 
 # --- Seguridad de contraseñas (Argon2 + PBKDF2) ---
 PASSWORD_HASHERS = [
@@ -114,7 +139,8 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+WHITENOISE_AUTOREFRESH = True
+WHITENOISE_USE_FINDERS = True
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -148,9 +174,14 @@ X_FRAME_OPTIONS = 'DENY'
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # --- Cifrado simétrico (Fernet/AES) para datos sensibles - Ley 21.719 ---
-FERNET_KEY = 'FF4L3jxoeRGOG8AUMaRVygz9XemP2QQVoRcoRLwZpIs='
+FERNET_KEY = os.environ.get('FERNET_KEY', 'FF4L3jxoeRGOG8AUMaRVygz9XemP2QQVoRcoRLwZpIs=')
 
 # --- CORS ---
 CORS_ALLOW_ALL_ORIGINS = True  # Solo desarrollo
+
+# --- Simulación Docente: Selector rápido de 1 clic ---
+# False (recomendado): solo el Administrador real autenticado puede usar /simular-rol/ (403 a otros roles).
+# True: habilita el cambio rápido de rol en /login/ y barra superior para demostraciones abiertas.
+MODO_SIMULACION_DOCENTE = os.environ.get('MODO_SIMULACION_DOCENTE', 'False').lower() in ('true', '1', 'yes')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

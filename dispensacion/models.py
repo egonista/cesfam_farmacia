@@ -57,6 +57,24 @@ class Receta(models.Model):
     fecha_emision = models.DateField(verbose_name='Fecha de emisión')
     fecha_vencimiento = models.DateField(verbose_name='Fecha de vencimiento de la receta')
     observaciones = models.TextField(blank=True, verbose_name='Observaciones')
+    autorizada_qf = models.BooleanField(
+        default=False,
+        verbose_name='Autorizada por Químico Farmacéutico',
+        help_text='Visto bueno del Q.F. obligatorio para recetas controladas/retenidas antes de despacho por TENS'
+    )
+    qf_autorizador = models.ForeignKey(
+        'core.Usuario',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='recetas_autorizadas_qf',
+        verbose_name='Q.F. que autoriza'
+    )
+    fecha_autorizacion_qf = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Fecha autorización Q.F.'
+    )
     fecha_registro = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -69,14 +87,57 @@ class Receta(models.Model):
 
     @property
     def esta_vigente(self):
-        """True si la receta no ha vencido."""
+        """
+        True si la receta no ha vencido ni está anulada.
+        Las recetas simples, retenidas y cheque tienen una vigencia máxima de 30 días desde su emisión.
+        Las recetas crónicas respetan su fecha de vencimiento (hasta 180 días).
+        """
         from datetime import date
-        return self.fecha_vencimiento >= date.today() and self.estado != self.EstadoReceta.ANULADA
+        hoy = date.today()
+        if self.estado in (self.EstadoReceta.ANULADA, self.EstadoReceta.VENCIDA):
+            return False
+        if self.fecha_vencimiento < hoy:
+            return False
+        dias_desde_emision = (hoy - self.fecha_emision).days
+        if self.tipo != self.TipoReceta.CRONICA and dias_desde_emision > 30:
+            return False
+        return True
+
+    @property
+    def esta_vencida(self):
+        """True si la receta caducó por fecha de vencimiento, plazo legal de 30 días o estado."""
+        from datetime import date
+        hoy = date.today()
+        if self.estado == self.EstadoReceta.VENCIDA:
+            return True
+        if self.estado in (self.EstadoReceta.ANULADA, self.EstadoReceta.DISPENSADA_TOTAL):
+            return False
+        if self.fecha_vencimiento < hoy:
+            return True
+        if self.tipo != self.TipoReceta.CRONICA and (hoy - self.fecha_emision).days > 30:
+            return True
+        return False
+
+    @property
+    def tiene_medicamento_controlado(self):
+        """True si algún detalle prescrito corresponde a un fármaco controlado."""
+        return self.detalles.filter(medicamento__es_controlado=True).exists()
 
     @property
     def es_controlada(self):
-        """True si la receta es para medicamentos controlados."""
-        return self.tipo == self.TipoReceta.CHEQUE
+        """True si la receta es retenida, cheque o prescribe algún fármaco controlado."""
+        return (
+            self.tipo in (self.TipoReceta.CHEQUE, self.TipoReceta.RETENIDA)
+            or self.tiene_medicamento_controlado
+        )
+
+    @property
+    def requiere_autorizacion_qf(self):
+        """True si es controlada/retenida, está pendiente y aún no tiene visto bueno del Q.F."""
+        return self.es_controlada and not self.autorizada_qf and self.estado in (
+            self.EstadoReceta.PENDIENTE,
+            self.EstadoReceta.DISPENSADA_PARCIAL,
+        )
 
 
 class DetalleReceta(models.Model):

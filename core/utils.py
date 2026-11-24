@@ -176,3 +176,62 @@ def dias_hasta_vencimiento(fecha_vencimiento):
     if isinstance(fecha_vencimiento, datetime):
         fecha_vencimiento = fecha_vencimiento.date()
     return (fecha_vencimiento - date.today()).days
+
+
+# ============================================================
+# HELPERS DE ESCENARIOS DE SIMULACIÓN Y ROL EFECTIVO
+# ============================================================
+
+def obtener_rol_efectivo(request):
+    """
+    Retorna el rol efectivo de la sesión activa (considerando /simular-rol/
+    y el rol autenticado en request.user).
+    """
+    if not getattr(request, 'user', None) or not request.user.is_authenticated:
+        return None
+    rol_sesion = request.session.get('rol_simulado')
+    if rol_sesion in ('admin', 'quimico', 'tecnico', 'clinico') and rol_sesion == request.user.rol:
+        return rol_sesion
+    return getattr(request.user, 'rol', None)
+
+
+def obtener_filtro_escenario(request):
+    """
+    Determina el escenario activo y si la vista actual debe filtrar por él:
+    - Técnico y Q.F.: filtran estrictamente por el escenario activo (si existe).
+    - Administrador: filtra por el escenario activo por defecto ('escenario')
+      para visualizar cambios al instante, o muestra todo si pasa ?vista=completo.
+    Retorna tupla: (escenario_activo, filtrar_por_escenario, vista_actual).
+    """
+    from core.models import EscenarioSimulacion
+
+    escenario_activo = EscenarioSimulacion.obtener_activo()
+    rol = obtener_rol_efectivo(request)
+
+    if escenario_activo is None:
+        return None, False, 'completo'
+
+    if rol == 'admin':
+        vista = request.GET.get('vista', 'escenario').strip()
+        if vista == 'completo':
+            return escenario_activo, False, 'completo'
+        return escenario_activo, True, 'escenario'
+
+    if rol in ('tecnico', 'quimico'):
+        return escenario_activo, True, 'escenario'
+
+    return escenario_activo, False, 'escenario'
+
+
+def generar_rut_unico_paciente():
+    """Genera un RUT chileno válido (Módulo 11) que no exista aún en Paciente."""
+    import random
+    from core.models import Paciente
+
+    for _ in range(100):
+        cuerpo = str(random.randint(15000000, 24999999))
+        dv = calcular_digito_verificador(cuerpo)
+        rut_fmt = formatear_rut(f'{cuerpo}{dv}')
+        if not Paciente.objects.filter(rut=rut_fmt).exists():
+            return rut_fmt
+    raise RuntimeError('No fue posible generar un RUT chileno único.')

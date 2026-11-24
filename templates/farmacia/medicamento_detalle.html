@@ -15,15 +15,49 @@
         <p class="text-muted small mb-0 mt-1">Ficha técnica, control de lotes FEFO, ajuste manual de inventario y kardex de movimientos</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
+        {% if user.rol == 'admin' or user.rol == 'quimico' %}
         <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalEditarMedicamento">
             <i class="bi bi-pencil-square me-1"></i>Editar Ficha del Medicamento
         </button>
-        <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-outline-primary btn-sm">
+        {% endif %}
+        {% if user.rol == 'admin' or user.rol == 'quimico' %}
+        <a href="{% url 'farmacia:lote_crear' %}?medicamento={{ medicamento.pk }}" class="btn btn-outline-primary btn-sm">
             <i class="bi bi-box-seam me-1"></i>+ Ingresar Lote Manual
+        </a>
+        {% elif user.rol == 'tecnico' and not medicamento.es_controlado %}
+        <a href="{% url 'farmacia:lote_crear' %}?medicamento={{ medicamento.pk }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-box-seam me-1"></i>+ Ingresar Lote Manual
+        </a>
+        {% endif %}
+
+        {% if user.rol == 'tecnico' %}
+            {% if medicamento.en_quiebre %}
+            <a href="{% url 'farmacia:orden_list' %}" class="btn btn-cesfam btn-sm">
+                <i class="bi bi-truck me-1"></i>Pedir a CENABAST
+            </a>
+            <a href="{% if lote_bodega_sugerido %}{% url 'farmacia:traspaso' %}?lote={{ lote_bodega_sugerido.pk }}{% else %}{% url 'farmacia:traspaso' %}?medicamento={{ medicamento.pk }}{% endif %}" class="btn btn-outline-dark btn-sm">
+                <i class="bi bi-arrow-left-right me-1"></i>Traspasar Bodega → Vitrina
+            </a>
+            {% else %}
+            <a href="{% if lote_bodega_sugerido %}{% url 'farmacia:traspaso' %}?lote={{ lote_bodega_sugerido.pk }}{% else %}{% url 'farmacia:traspaso' %}?medicamento={{ medicamento.pk }}{% endif %}" class="btn btn-cesfam btn-sm">
+                <i class="bi bi-arrow-left-right me-1"></i>Traspasar Bodega → Vitrina
+            </a>
+            <a href="{% url 'farmacia:orden_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-truck me-1"></i>Sugerir Pedido CENABAST
+            </a>
+            {% endif %}
+        {% elif user.rol == 'quimico' %}
+        <a href="{% if lote_bodega_sugerido %}{% url 'farmacia:traspaso' %}?lote={{ lote_bodega_sugerido.pk }}{% else %}{% url 'farmacia:traspaso' %}?medicamento={{ medicamento.pk }}{% endif %}" class="btn btn-outline-dark btn-sm">
+            <i class="bi bi-arrow-left-right me-1"></i>Traspasar Bodega → Vitrina
         </a>
         <a href="{% url 'farmacia:orden_list' %}" class="btn btn-cesfam btn-sm">
             <i class="bi bi-truck me-1"></i>Pedir a CENABAST
         </a>
+        {% elif user.rol == 'admin' %}
+        <a href="{% url 'farmacia:orden_list' %}" class="btn btn-cesfam btn-sm">
+            <i class="bi bi-truck me-1"></i>Pedir a CENABAST
+        </a>
+        {% endif %}
     </div>
 </div>
 
@@ -39,9 +73,14 @@
             <p class="mb-2"><strong>Forma Farmacéutica:</strong> {{ medicamento.forma_farmaceutica }}</p>
             <p class="mb-2"><strong>Categoría:</strong> <span class="badge bg-secondary">{{ medicamento.categoria.nombre }}</span></p>
             <hr>
-            <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
                 <span><strong>Stock Total Vigente:</strong></span>
                 <span class="fs-3 fw-bolder {% if medicamento.en_quiebre %}text-danger{% else %}text-success{% endif %}">{{ medicamento.stock_total }}</span>
+            </div>
+            <div class="small bg-light border rounded px-2 py-1 mb-2 d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-shop-window text-success me-1"></i>Vitrina: <strong>{{ medicamento.stock_vitrina }} unid.</strong></span>
+                <span class="text-muted">|</span>
+                <span><i class="bi bi-building text-dark me-1"></i>Bodega: <strong>{{ medicamento.stock_bodega }} unid.</strong></span>
             </div>
             <div class="d-flex justify-content-between small text-muted mb-1">
                 <span>Umbral Mínimo (Alerta Quiebre):</span>
@@ -53,18 +92,22 @@
             </div>
             {% if medicamento.es_controlado %}
             <div class="alert alert-danger py-2 mt-3 mb-0 small">
-                <i class="bi bi-shield-lock-fill me-1"></i><strong>Medicamento Controlado (D.S. 404/405 ISP)</strong>
+                <i class="bi bi-shield-lock-fill me-1"></i><strong>Medicamento Sujeto a Control Legal</strong>
             </div>
             {% endif %}
         </div>
     </div>
 
-    <!-- Lotes Ordenados FEFO y Ajuste Manual -->
+    <!-- Lotes Ordenados por Vencimiento y Ajuste Manual -->
     <div class="col-md-8">
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-box-seam text-danger me-2"></i>Lotes Registrados (Ordenados por Algoritmo FEFO)</span>
+                <span><i class="bi bi-box-seam text-danger me-2"></i>Lotes Registrados (Ordenados por Vencimiento Más Próximo)</span>
+                {% if user.rol == 'quimico' or user.rol == 'admin' %}
                 <span class="small text-muted">Puedes ajustar manualmente el stock o vencimiento de cualquier lote</span>
+                {% else %}
+                <span class="small text-muted"><i class="bi bi-lock-fill me-1"></i>Ajustes manuales de stock/vencimiento reservados a Dirección Técnica (Q.F.)</span>
+                {% endif %}
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -102,6 +145,7 @@
                                 {% endif %}
                             </td>
                             <td>
+                                {% if user.rol == 'quimico' or user.rol == 'admin' %}
                                 <form method="post" class="d-flex gap-1 m-0">
                                     {% csrf_token %}
                                     <input type="hidden" name="accion" value="ajustar_lote">
@@ -112,6 +156,9 @@
                                         <i class="bi bi-check-lg"></i>
                                     </button>
                                 </form>
+                                {% else %}
+                                <span class="text-muted small"><i class="bi bi-lock-fill me-1"></i>Solo Dirección Técnica (Q.F.)</span>
+                                {% endif %}
                             </td>
                         </tr>
                         {% empty %}
@@ -200,7 +247,7 @@
                         <div class="col-md-4 d-flex align-items-end">
                             <div class="form-check mb-2">
                                 <input type="checkbox" name="es_controlado" class="form-check-input" id="chkEditCtrl" {% if medicamento.es_controlado %}checked{% endif %}>
-                                <label class="form-check-label fw-bold text-danger" for="chkEditCtrl">Controlado ISP (D.S. 404/405)</label>
+                                <label class="form-check-label fw-bold text-danger" for="chkEditCtrl">Medicamento Controlado</label>
                             </div>
                         </div>
                     </div>

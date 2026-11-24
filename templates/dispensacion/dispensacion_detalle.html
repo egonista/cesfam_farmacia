@@ -5,7 +5,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3 no-print">
     <div>
         <h4 class="fw-bolder mb-0"><i class="bi bi-file-earmark-check-fill text-success me-2"></i>Comprobante Oficial de Dispensación Asistencial #{{ dispensacion.id }}</h4>
-        <p class="text-muted small mb-0">Documento con trazabilidad FEFO, gratuidad $0 copago e individualización del receptor físico (HU-05 / RF-11)</p>
+        <p class="text-muted small mb-0">Comprobante de entrega de tratamiento con registro de lotes e individualización de quien retira</p>
     </div>
     <div class="d-flex gap-2">
         <button type="button" onclick="window.print()" class="btn btn-cesfam">
@@ -35,16 +35,16 @@
         </div>
     </div>
 
-    <!-- Individualización del Paciente Titular y del Receptor Físico (HU-05) -->
+    <!-- Individualización del Paciente Titular y del Receptor Físico -->
     <div class="row g-3 mb-4">
         <div class="col-md-6">
             <div class="p-3 rounded border bg-light h-100">
                 <h6 class="fw-bolder text-uppercase small text-danger mb-2">
-                    <i class="bi bi-person-vcard me-1"></i>1. Individualización del Paciente Titular Beneficiario
+                    <i class="bi bi-person-vcard me-1"></i>1. Datos del Paciente Titular Beneficiario
                 </h6>
                 <div class="small">
                     <div class="mb-1"><strong>Nombre Completo:</strong> {{ dispensacion.receta.paciente.nombre_completo }}</div>
-                    <div class="mb-1"><strong>RUT (Módulo 11):</strong> <code class="fw-bold">{{ dispensacion.receta.paciente.rut }}</code></div>
+                    <div class="mb-1"><strong>RUT:</strong> <code class="fw-bold">{{ dispensacion.receta.paciente.rut }}</code></div>
                     <div class="mb-1"><strong>Previsión / Tramo:</strong> {{ dispensacion.receta.paciente.get_prevision_display }} {% if dispensacion.receta.paciente.cronico %}(Paciente Crónico){% endif %}</div>
                     <div class="mb-1"><strong>Receta Médica Asociada:</strong> <code>{{ dispensacion.receta.numero_receta }}</code> ({{ dispensacion.receta.get_tipo_display }})</div>
                     <div class="mb-0"><strong>Médico Prescriptor:</strong> {{ dispensacion.receta.medico }}</div>
@@ -55,14 +55,14 @@
         <div class="col-md-6">
             <div class="p-3 rounded border {% if dispensacion.retiro_tercero %}border-primary bg-primary bg-opacity-10{% else %}bg-light{% endif %} h-100">
                 <h6 class="fw-bolder text-uppercase small {% if dispensacion.retiro_tercero %}text-primary{% else %}text-dark{% endif %} mb-2">
-                    <i class="bi bi-person-check-fill me-1"></i>2. Individualización de Quien Retira Físicamente (RF-11)
+                    <i class="bi bi-person-check-fill me-1"></i>2. Datos de la Persona que Retira en Ventanilla
                 </h6>
                 {% if dispensacion.retiro_tercero and dispensacion.tercero_autorizado %}
                 <div class="small">
                     <div class="mb-1"><span class="badge bg-primary">RETIRO POR TERCERO AUTORIZADO / CUIDADOR</span></div>
                     <div class="mb-1"><strong>Nombre del Receptor:</strong> {{ dispensacion.tercero_autorizado.nombre_completo }}</div>
-                    <div class="mb-1"><strong>RUT del Receptor (Módulo 11):</strong> <code class="fw-bold">{{ dispensacion.tercero_autorizado.rut }}</code></div>
-                    <div class="mb-1"><strong>Parentesco / Vínculo Legal:</strong> <strong>{{ dispensacion.tercero_autorizado.parentesco }}</strong></div>
+                    <div class="mb-1"><strong>RUT del Receptor:</strong> <code class="fw-bold">{{ dispensacion.tercero_autorizado.rut }}</code></div>
+                    <div class="mb-1"><strong>Parentesco / Vínculo:</strong> <strong>{{ dispensacion.tercero_autorizado.parentesco }}</strong></div>
                     <div class="mb-0"><strong>Teléfono de Contacto:</strong> {{ dispensacion.tercero_autorizado.telefono }}</div>
                 </div>
                 {% else %}
@@ -77,9 +77,9 @@
         </div>
     </div>
 
-    <!-- Detalle de Medicamentos y Lotes FEFO Entregados -->
+    <!-- Detalle de Medicamentos y Lotes Entregados -->
     <h6 class="fw-bolder text-uppercase small text-dark mb-2">
-        <i class="bi bi-capsule me-1"></i>3. Desglose de Fármacos, Posología y Trazabilidad de Lotes (Algoritmo FEFO)
+        <i class="bi bi-capsule me-1"></i>3. Desglose de Medicamentos, Posología y Lotes Entregados
     </h6>
     <div class="table-responsive mb-4">
         <table class="table table-cesfam table-bordered mb-0">

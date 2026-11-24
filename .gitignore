@@ -1,18 +1,39 @@
-# Entorno virtual Python
+# Entornos virtuales Python
 venv/
 .venv/
 env/
 
-# Caché de Python
+# Caché y compilados de Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
 
-# Archivos estáticos compilados y media temporal
+# Variables de entorno y secretos locales
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Bases de datos locales y respaldos temporales
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
+mongo_fallback/
+
+# Archivos estáticos compilados y media local
 staticfiles/
 media/
 
-# Logs y temporales
+# Logs y archivos temporales
 *.log
+*.tmp
+*.bak
+*.swp
 .DS_Store
 Thumbs.db
+
+# IDEs y editores
+.vscode/
+.idea/
+*.sublime-*

@@ -1,11 +1,394 @@
 {% extends 'base.html' %}
-{% block title %}Dispensar{% endblock %}
+{% block title %}Ventanilla de Dispensación Asistencial{% endblock %}
 {% block content %}
-<div class="container-fluid py-4">
-    <h4><i class="bi bi-hand-index me-2"></i>Dispensar Receta</h4>
-    <p class="text-muted">Seleccione una receta pendiente para iniciar la dispensación.</p>
-    <div class="card"><div class="card-body">
-        <div class="table-responsive"><table class="table table-cesfam"><thead><tr><th>N° Receta</th><th>Paciente</th><th>RUT</th><th>Médico</th><th>Fecha</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{% for r in recetas_pendientes %}<tr><td><strong>{{ r.numero_receta }}</strong></td><td>{{ r.paciente.nombre_completo }}</td><td>{{ r.paciente.rut }}</td><td>{{ r.medico }}</td><td>{{ r.fecha_emision|date:"d/m/Y" }}</td><td><span class="badge bg-warning text-dark">{{ r.get_estado_display }}</span></td><td><a href="{% url 'dispensacion:dispensar_receta' r.pk %}" class="btn btn-sm btn-dispensar"><i class="bi bi-hand-index me-1"></i>Dispensar</a></td></tr>{% empty %}<tr><td colspan="7" class="text-center text-muted">No hay recetas pendientes de dispensación.</td></tr>{% endfor %}</tbody></table></div>
-    </div></div>
+<!-- Cabecera Limpia y Operativa -->
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <h4 class="fw-bolder mb-0 text-dark">
+            <i class="bi bi-clipboard2-check-fill text-danger me-2"></i>Ventanilla de Dispensación Asistencial
+        </h4>
+        <span class="badge bg-success bg-opacity-10 text-success border border-success">$0 Copago</span>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <button type="button" class="btn btn-cesfam btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#modalRecetaFisicaVentanilla">
+            <i class="bi bi-plus-lg me-1"></i>Receta Física
+        </button>
+        <a href="{% url 'dispensacion:receta_list' %}" class="btn btn-outline-dark btn-sm">
+            <i class="bi bi-file-earmark-medical me-1"></i>Recetas Médicas
+        </a>
+        <a href="{% url 'dispensacion:historial' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-receipt me-1"></i>Comprobantes
+        </a>
+    </div>
 </div>
+
+<!-- Buscador Principal -->
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-center" id="formBuscadorVentanilla">
+            <input type="hidden" name="filtro" value="{{ filtro }}">
+            <div class="col-md-9 col-lg-10">
+                <div class="input-group">
+                    <span class="input-group-text bg-white border-end-0 text-danger"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" id="inputBuscadorVentanilla" class="form-control border-start-0 ps-0"
+                           placeholder="Buscar por RUT, Nombre del paciente o N° de Receta..." value="{{ q }}" autofocus>
+                </div>
+            </div>
+            <div class="col-md-3 col-lg-2 d-flex gap-2">
+                <button type="submit" class="btn btn-dark w-100 fw-semibold">Buscar</button>
+                {% if q %}
+                <a href="{% url 'dispensacion:dispensar' %}?filtro={{ filtro }}" class="btn btn-outline-secondary" title="Limpiar búsqueda">
+                    <i class="bi bi-x-lg"></i>
+                </a>
+                {% endif %}
+            </div>
+        </form>
+        <div class="text-muted small mt-2 mb-0">
+            Busca recetas vigentes emitidas desde box o registra una receta física traída en papel.
+        </div>
+    </div>
+</div>
+
+<!-- Tabs de Flujo de Trabajo y Tabla de 5 Columnas -->
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-white pt-3 pb-0 border-bottom">
+        <ul class="nav nav-tabs card-header-tabs flex-nowrap overflow-auto">
+            <li class="nav-item">
+                <a class="nav-link text-nowrap {% if filtro == 'listas' %}active fw-bold text-dark{% else %}text-muted{% endif %}"
+                   href="{% url 'dispensacion:dispensar' %}?filtro=listas{% if q %}&q={{ q|urlencode }}{% endif %}">
+                    <i class="bi bi-check-circle-fill text-success me-1"></i>Listas para Entregar
+                    <span class="badge rounded-pill {% if filtro == 'listas' %}bg-success{% else %}bg-light text-dark border{% endif %} ms-1">{{ total_listas }}</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link text-nowrap {% if filtro == 'pendientes_qf' %}active fw-bold text-dark{% else %}text-muted{% endif %}"
+                   href="{% url 'dispensacion:dispensar' %}?filtro=pendientes_qf{% if q %}&q={{ q|urlencode }}{% endif %}">
+                    <i class="bi bi-shield-lock-fill text-warning me-1"></i>Pendientes Q.F.
+                    <span class="badge rounded-pill {% if filtro == 'pendientes_qf' %}bg-warning text-dark{% else %}bg-light text-dark border{% endif %} ms-1">{{ total_pendientes_qf }}</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link text-nowrap {% if filtro == 'vencidas' %}active fw-bold text-dark{% else %}text-muted{% endif %}"
+                   href="{% url 'dispensacion:dispensar' %}?filtro=vencidas{% if q %}&q={{ q|urlencode }}{% endif %}">
+                    <i class="bi bi-x-circle-fill text-danger me-1"></i>Vencidas
+                    <span class="badge rounded-pill {% if filtro == 'vencidas' %}bg-danger{% else %}bg-light text-dark border{% endif %} ms-1">{{ total_vencidas }}</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link text-nowrap {% if filtro == 'todas' %}active fw-bold text-dark{% else %}text-muted{% endif %}"
+                   href="{% url 'dispensacion:dispensar' %}?filtro=todas{% if q %}&q={{ q|urlencode }}{% endif %}">
+                    Todas
+                    <span class="badge rounded-pill {% if filtro == 'todas' %}bg-dark{% else %}bg-light text-dark border{% endif %} ms-1">{{ total_todas }}</span>
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" id="tablaVentanilla">
+                <thead class="table-light text-uppercase small text-muted">
+                    <tr>
+                        <th class="ps-3 py-3">Paciente</th>
+                        <th class="py-3">Receta</th>
+                        <th class="py-3">Medicamento y Stock</th>
+                        <th class="py-3">Vigencia</th>
+                        <th class="pe-3 py-3 text-end">Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for item in recetas_mostradas %}
+                {% with r=item.receta %}
+                <tr class="fila-receta-ventanilla {% if item.es_vencida %}table-danger bg-opacity-25{% endif %}">
+                    <!-- Columna 1: Paciente -->
+                    <td class="ps-3 py-3">
+                        <div class="fw-bold text-dark">{{ r.paciente.nombre_completo }}</div>
+                        <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                            <code class="text-dark fw-semibold text-nowrap" style="white-space: nowrap;">{{ r.paciente.rut }}</code>
+                            <span class="badge bg-light text-dark border fw-normal">
+                                {{ r.paciente.get_prevision_display }}{% if r.paciente.cronico %} · Crónico PSCV{% endif %}
+                            </span>
+                        </div>
+                    </td>
+
+                    <!-- Columna 2: Receta -->
+                    <td class="py-3">
+                        <div class="d-flex align-items-center gap-1 flex-wrap">
+                            <code class="fw-bold text-dark text-nowrap" style="white-space: nowrap;">{{ r.numero_receta }}</code>
+                            {% if r.tipo == 'simple' %}
+                            <span class="badge bg-secondary">Simple</span>
+                            {% elif r.tipo == 'cronica' %}
+                            <span class="badge bg-info text-dark">Crónica</span>
+                            {% elif r.tipo == 'retenida' %}
+                            <span class="badge bg-dark">Retenida</span>
+                            {% elif r.tipo == 'cheque' %}
+                            <span class="badge bg-dark">Cheque</span>
+                            {% endif %}
+                            {% if r.es_controlada %}
+                            <span class="badge bg-danger">Controlada</span>
+                            {% endif %}
+                        </div>
+                        <div class="text-muted small mt-1">{{ r.medico }}</div>
+                    </td>
+
+                    <!-- Columna 3: Medicamento y Stock -->
+                    <td class="py-3">
+                        {% for ds in item.detalles_stock %}
+                        <div class="{% if not forloop.last %}mb-2{% endif %}">
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <span class="fw-semibold text-dark">{{ ds.detalle.medicamento.nombre_generico }} {{ ds.detalle.medicamento.concentracion }}</span>
+                                <span class="badge bg-dark text-nowrap">{{ ds.detalle.cantidad_pendiente }} unid.</span>
+                            </div>
+                            <div class="mt-1">
+                                {% if ds.vitrina_suficiente %}
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success fw-semibold">
+                                    <i class="bi bi-check2 me-1"></i>En vitrina: {{ ds.stock_vitrina }}
+                                </span>
+                                {% elif ds.stock_vitrina > 0 %}
+                                <span class="badge bg-warning bg-opacity-25 text-dark border border-warning fw-semibold">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>Vitrina: {{ ds.stock_vitrina }} · Bodega: {{ ds.stock_bodega }}
+                                </span>
+                                {% elif ds.stock_bodega > 0 %}
+                                <span class="badge bg-warning bg-opacity-25 text-dark border border-warning fw-semibold">
+                                    <i class="bi bi-box-seam me-1"></i>Stock bajo / en bodega: {{ ds.stock_bodega }}
+                                </span>
+                                {% else %}
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger fw-semibold">
+                                    <i class="bi bi-x-circle me-1"></i>Sin stock vigente
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </td>
+
+                    <!-- Columna 4: Vigencia -->
+                    <td class="py-3 text-nowrap">
+                        <div class="fw-semibold text-dark">{{ r.fecha_vencimiento|date:"d/m/Y" }}</div>
+                        {% if item.es_vencida %}
+                        <div class="small text-danger fw-semibold">{{ item.vigencia_label }}</div>
+                        {% elif item.dias_diff <= 5 %}
+                        <div class="small text-warning fw-semibold">{{ item.vigencia_label }}</div>
+                        {% else %}
+                        <div class="small text-muted">{{ item.vigencia_label }}</div>
+                        {% endif %}
+                    </td>
+
+                    <!-- Columna 5: Acción (sin duplicar texto entre badge y botón) -->
+                    <td class="pe-3 py-3 text-end text-nowrap">
+                        {% if item.es_vencida %}
+                        <div class="d-inline-flex align-items-center gap-2">
+                            <span class="badge bg-danger">Vencida</span>
+                            <a href="{% url 'dispensacion:receta_detalle' r.pk %}" class="btn btn-sm btn-outline-dark">
+                                <i class="bi bi-eye me-1"></i>Ver
+                            </a>
+                        </div>
+                        {% elif item.requiere_qf %}
+                            {% if user.rol == 'quimico' %}
+                            <div class="d-inline-flex align-items-center gap-1">
+                                <a href="{% url 'dispensacion:dispensar_receta' r.pk %}" class="btn btn-sm btn-danger fw-semibold shadow-sm">
+                                    <i class="bi bi-shield-check me-1"></i>Autorizar y Atender
+                                </a>
+                                <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalAutorizarQF{{ r.pk }}" title="Firmar autorización para el Técnico">
+                                    <i class="bi bi-pen"></i>
+                                </button>
+                                <a href="{% url 'dispensacion:receta_detalle' r.pk %}" class="btn btn-sm btn-outline-dark">
+                                    <i class="bi bi-eye me-1"></i>Ver
+                                </a>
+                            </div>
+                            {% else %}
+                            <div class="d-inline-flex align-items-center gap-2">
+                                <span class="badge bg-warning text-dark border border-warning">
+                                    <i class="bi bi-hourglass-split me-1"></i>Esperando Q.F.
+                                </span>
+                                <a href="{% url 'dispensacion:receta_detalle' r.pk %}" class="btn btn-sm btn-outline-dark">
+                                    <i class="bi bi-eye me-1"></i>Ver
+                                </a>
+                            </div>
+                            {% endif %}
+                        {% else %}
+                        <div class="d-inline-flex align-items-center gap-1">
+                            <a href="{% url 'dispensacion:dispensar_receta' r.pk %}" class="btn btn-sm btn-dispensar shadow-sm">
+                                <i class="bi bi-hand-index-thumb me-1"></i>Atender
+                            </a>
+                            <a href="{% url 'dispensacion:receta_detalle' r.pk %}" class="btn btn-sm btn-outline-dark">
+                                <i class="bi bi-eye me-1"></i>Ver
+                            </a>
+                        </div>
+                        {% endif %}
+
+                        {% if user.rol == 'quimico' and item.requiere_qf %}
+                        <!-- Modal Autorización Q.F. para habilitar entrega al Técnico -->
+                        <div class="modal fade text-start" id="modalAutorizarQF{{ r.pk }}" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header bg-danger text-white">
+                                        <h5 class="modal-title"><i class="bi bi-shield-lock-fill me-2"></i>Autorización Q.F. — {{ r.numero_receta }}</h5>
+                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <form method="post" action="{% url 'dispensacion:autorizar_receta_qf' r.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="next" value="{% url 'dispensacion:dispensar' %}?filtro=listas">
+                                        <div class="modal-body text-wrap">
+                                            <p class="small mb-3">
+                                                Al firmar la receta controlada <strong>{{ r.numero_receta }}</strong> de <strong>{{ r.paciente.nombre_completo }}</strong>, quedará autorizada para ser entregada en ventanilla por el Técnico en Farmacia.
+                                            </p>
+                                            <label class="form-label fw-bold small">PIN del Químico Farmacéutico</label>
+                                            <input type="password" name="pin_qf" class="form-control" placeholder="PIN Q.F. (Simulación: 123456)" required autofocus>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                            <button type="submit" class="btn btn-danger fw-bold"><i class="bi bi-check-circle me-1"></i>Firmar y Habilitar</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endwith %}
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-5">
+                        <i class="bi bi-inbox fs-3 d-block mb-2 text-secondary"></i>
+                        {% if escenario_sin_recetas and not q %}
+                        Este escenario aún no tiene recetas asignadas.
+                        {% elif filtro == 'listas' %}
+                        No hay recetas listas para entregar{% if q %} que coincidan con "{{ q }}"{% endif %}.
+                        {% elif filtro == 'pendientes_qf' %}
+                        No hay recetas controladas esperando autorización del Químico Farmacéutico.
+                        {% elif filtro == 'vencidas' %}
+                        No se registran recetas vencidas pendientes.
+                        {% else %}
+                        No se encontraron recetas{% if q %} para "{{ q }}"{% endif %}.
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Ingresar Receta Física Traída por el Paciente en Ventanilla y Pasar a Entregar -->
+<div class="modal fade" id="modalRecetaFisicaVentanilla" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-medical me-2"></i>Transcribir Receta Física y Pasar a Dispensación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{% url 'dispensacion:receta_crear' %}">
+                {% csrf_token %}
+                <input type="hidden" name="ir_a_dispensar" value="1">
+                <div class="modal-body">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold">Paciente Beneficiario (RUT / Nombre)</label>
+                            <select name="paciente" class="form-select" required>
+                                <option value="">Seleccione paciente...</option>
+                                {% for p in pacientes %}
+                                <option value="{{ p.pk }}">{{ p.rut }} — {{ p.nombre_completo }} ({{ p.get_prevision_display }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Médico Prescriptor</label>
+                            <select name="medico" class="form-select" required>
+                                {% for m in medicos %}
+                                <option value="{{ m.pk }}">Dr(a). {{ m.get_full_name }} ({{ m.rut }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Tipo de Receta</label>
+                            <select name="tipo" class="form-select" required>
+                                {% for val, label in tipos_receta %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Fecha Emisión Receta</label>
+                            <input type="date" name="fecha_emision" class="form-control" value="{{ hoy_str }}" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Fecha Vencimiento (Máx. 30 días)</label>
+                            <input type="date" name="fecha_vencimiento" class="form-control" value="{{ venc_30_str }}" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Diagnóstico Clínico Indicado en la Receta</label>
+                            <input type="text" name="diagnostico" class="form-control" placeholder="Ej: Hipertensión Arterial Esencial / Cuadro Respiratorio Agudo" required>
+                        </div>
+                    </div>
+
+                    <h6 class="fw-bolder text-uppercase small text-danger border-bottom pb-2 mb-3">
+                        <i class="bi bi-capsule me-1"></i>Medicamentos Indicados en la Receta
+                    </h6>
+                    <div id="contenedorLineasVentanilla">
+                        <div class="row g-2 align-items-end mb-2 fila-med-ventanilla">
+                            <div class="col-md-5">
+                                <label class="form-label small fw-bold">Medicamento del Arsenal (Stock Disponible)</label>
+                                <select name="medicamento" class="form-select form-select-sm" required>
+                                    <option value="">Seleccione medicamento...</option>
+                                    {% for med in medicamentos %}
+                                    <option value="{{ med.pk }}">{{ med.nombre_generico }} {{ med.concentracion }} ({{ med.codigo }}) — Stock: {{ med.stock_total }}{% if med.es_controlado %} [CONTROLADO]{% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold">Cantidad Total</label>
+                                <input type="number" name="cantidad_prescrita" class="form-control form-control-sm" value="30" min="1" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold">Posología / Indicación</label>
+                                <input type="text" name="posologia" class="form-control form-control-sm" value="1 comprimido cada 12 horas" required>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold">Días Trat.</label>
+                                <input type="number" name="duracion_dias" class="form-control form-control-sm" value="30" min="1" required>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-dark mt-2" onclick="agregarFilaVentanilla()">
+                        <i class="bi bi-plus-circle me-1"></i>+ Agregar Otro Medicamento a la Receta
+                    </button>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-dispensar fw-bold">
+                        <i class="bi bi-arrow-right-circle-fill me-1"></i>Registrar Receta y Pasar a Entregar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function agregarFilaVentanilla() {
+    const cont = document.getElementById('contenedorLineasVentanilla');
+    const primera = cont.querySelector('.fila-med-ventanilla');
+    const clon = primera.cloneNode(true);
+    clon.querySelector('select').value = '';
+    cont.appendChild(clon);
+}
+
+// Filtrado rápido instantáneo sobre la tabla visible sin recargar, conservando búsqueda en servidor al presionar Enter/Buscar
+document.addEventListener('DOMContentLoaded', function() {
+    const input = document.getElementById('inputBuscadorVentanilla');
+    const filas = document.querySelectorAll('.fila-receta-ventanilla');
+    if (input && filas.length > 0) {
+        input.addEventListener('input', function() {
+            const term = this.value.trim().toLowerCase();
+            filas.forEach(function(row) {
+                const texto = row.textContent.toLowerCase();
+                row.style.display = (!term || texto.includes(term)) ? '' : 'none';
+            });
+        });
+    }
+});
+</script>
 {% endblock %}

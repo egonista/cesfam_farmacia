@@ -1,0 +1,1109 @@
+{% extends 'base.html' %}
+{% block title %}{% if modo == 'editar' %}Editar Escenario{% else %}Nuevo Escenario{% endif %}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <h4 class="fw-bolder mb-0">
+            <i class="bi bi-easel2-fill text-danger me-2"></i>
+            {% if modo == 'editar' %}Editar Escenario de Simulación{% else %}Nuevo Escenario de Simulación{% endif %}
+        </h4>
+        <p class="text-muted small mb-0">
+            Arma tu taller en limpio: crea casos nuevos aquí mismo o importa pacientes y recetas desde el Archivo General del CESFAM
+        </p>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <button type="button"
+                class="btn btn-dark btn-sm fw-semibold shadow-sm"
+                id="btnGenerarCasoAleatorio"
+                data-url="{% url 'core:api_escenario_caso_aleatorio' %}">
+            <i class="bi bi-lightning-charge-fill text-warning me-1"></i>⚡ Generar Caso Aleatorio
+        </button>
+        <a href="{% url 'core:escenario_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Volver a Escenarios
+        </a>
+    </div>
+</div>
+
+<!-- Zona de aviso inline al crear/importar pacientes y recetas sin recargar -->
+<div id="alertaInlineConstructor" class="d-none mb-3"></div>
+
+<form method="post" novalidate id="formEscenario">
+    {% csrf_token %}
+
+    <!-- 1. Datos Principales -->
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-7">
+                    <label for="id_nombre" class="form-label fw-semibold">
+                        Nombre del Escenario <span class="text-danger">*</span>
+                    </label>
+                    <input type="text"
+                           id="id_nombre"
+                           name="nombre"
+                           class="form-control"
+                           placeholder="Ej: Taller 2 — Atención Crónicos GES y Controlados"
+                           maxlength="150"
+                           required
+                           value="{{ nombre_val }}">
+                </div>
+                <div class="col-md-5 d-flex align-items-end">
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               role="switch"
+                               id="id_activo"
+                               name="activo"
+                               {% if activo_val %}checked{% endif %}>
+                        <label class="form-check-label fw-semibold" for="id_activo">
+                            Activar al guardar
+                        </label>
+                        <div class="text-muted" style="font-size: 0.74rem;">
+                            Desactiva automáticamente el escenario activo anterior.
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <label for="id_descripcion" class="form-label fw-semibold">Descripción General</label>
+                    <textarea id="id_descripcion"
+                              name="descripcion"
+                              rows="2"
+                              class="form-control"
+                              placeholder="Opcional: objetivo pedagógico, sección o contexto clínico del taller...">{{ descripcion_val }}</textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Modalidad del Escenario e Incidencias / Consignas Personalizadas -->
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-header bg-white py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <span class="fw-bold small">
+                <i class="bi bi-sliders text-danger me-1"></i>Modalidad del Taller e Incidencias / Consignas
+            </span>
+            <span class="badge bg-light text-muted border fw-normal">Personalizable por taller</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="border rounded p-3 d-flex align-items-start gap-2 h-100 modalidad-card"
+                           style="cursor: pointer;"
+                           for="id_modalidad_libre">
+                        <input class="form-check-input mt-1 radio-modalidad"
+                               type="radio"
+                               name="modalidad"
+                               id="id_modalidad_libre"
+                               value="LIBRE"
+                               {% if modalidad_val != 'INCIDENCIAS' %}checked{% endif %}>
+                        <div>
+                            <div class="fw-bold text-dark">
+                                <i class="bi bi-people text-success me-1"></i>Práctica Libre / Juego de Roles
+                            </div>
+                            <div class="text-muted small mt-1">
+                                Atención normal en mostrador con recetas físicas o precargadas, traspasos y movimientos de stock sin forzar fallas automáticas.
+                            </div>
+                        </div>
+                    </label>
+                </div>
+                <div class="col-md-6">
+                    <label class="border rounded p-3 d-flex align-items-start gap-2 h-100 modalidad-card"
+                           style="cursor: pointer;"
+                           for="id_modalidad_incidencias">
+                        <input class="form-check-input mt-1 radio-modalidad"
+                               type="radio"
+                               name="modalidad"
+                               id="id_modalidad_incidencias"
+                               value="INCIDENCIAS"
+                               {% if modalidad_val == 'INCIDENCIAS' %}checked{% endif %}>
+                        <div>
+                            <div class="fw-bold text-dark">
+                                <i class="bi bi-lightning-charge-fill text-warning me-1"></i>Con Incidencias Automáticas
+                            </div>
+                            <div class="text-muted small mt-1">
+                                Permite disparar automáticamente quiebre de stock, lote crítico FEFO y/o consumo en Carro de Paro al activar este escenario.
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Panel Condicional de Incidencias Automáticas -->
+            <div id="panelIncidenciasAutomaticas" class="mb-3 {% if modalidad_val != 'INCIDENCIAS' %}d-none{% endif %}">
+                <div class="row g-3 p-3 rounded border bg-light bg-opacity-50">
+                    <div class="col-md-6">
+                        <div class="border rounded bg-white p-3 h-100">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="id_simular_quiebre"
+                                       name="simular_quiebre"
+                                       {% if simular_quiebre_val %}checked{% endif %}>
+                                <label class="form-check-label fw-semibold" for="id_simular_quiebre">
+                                    <i class="bi bi-exclamation-octagon text-danger me-1"></i>Simular quiebre de stock
+                                </label>
+                            </div>
+                            <p class="text-muted small mt-1 mb-2">
+                                Reduce el stock en vitrina del fármaco elegido bajo el mínimo ministerial al activar el escenario.
+                            </p>
+                            <select name="medicamento_quiebre"
+                                    id="id_medicamento_quiebre"
+                                    class="form-select form-select-sm"
+                                    {% if not simular_quiebre_val %}disabled{% endif %}>
+                                <option value="">-- Seleccionar fármaco del arsenal --</option>
+                                {% for med in medicamentos_arsenal %}
+                                <option value="{{ med.pk }}" {% if medicamento_quiebre_id == med.pk %}selected{% endif %}>
+                                    {{ med.nombre_generico }} {{ med.concentracion }} (Mín: {{ med.stock_minimo }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded bg-white p-3 h-100">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="id_simular_alerta_fefo"
+                                       name="simular_alerta_fefo"
+                                       {% if simular_alerta_fefo_val %}checked{% endif %}>
+                                <label class="form-check-label fw-semibold" for="id_simular_alerta_fefo">
+                                    <i class="bi bi-hourglass-split text-warning me-1"></i>Simular alerta FEFO / lote crítico
+                                </label>
+                            </div>
+                            <p class="text-muted small mt-1 mb-0">
+                                Genera un lote próximo a vencer (12 días) en vitrina para evaluar FEFO y cuarentena por Q.F.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded bg-white p-3 h-100">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="id_simular_consumo_carro"
+                                       name="simular_consumo_carro"
+                                       {% if simular_consumo_carro_val %}checked{% endif %}>
+                                <label class="form-check-label fw-semibold" for="id_simular_consumo_carro">
+                                    <i class="bi bi-heart-pulse text-danger me-1"></i>Simular consumo en Carro de Paro
+                                </label>
+                            </div>
+                            <p class="text-muted small mt-1 mb-0">
+                                Registra un faltante de emergencia en el Carro de Paro para evaluar reposición y sellado.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Incidencias / Consignas Personalizadas del Docente -->
+            <div class="border-top pt-3">
+                <label for="id_consignas_personalizadas" class="form-label fw-semibold mb-1">
+                    <i class="bi bi-chat-square-text-fill text-primary me-1"></i>Incidencias / Consignas Personalizadas del Docente
+                </label>
+                <textarea id="id_consignas_personalizadas"
+                          name="consignas_personalizadas"
+                          rows="3"
+                          class="form-control mb-2"
+                          placeholder="Ej: Paciente llega con receta física en papel de urgencia · Familiar retira por paciente postrado — validar tercero autorizado...">{{ consignas_val }}</textarea>
+                <div class="form-check">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           id="id_mostrar_consigna"
+                           name="mostrar_consigna_a_estudiantes"
+                           {% if mostrar_consigna_val %}checked{% endif %}>
+                    <label class="form-check-label small fw-semibold" for="id_mostrar_consigna">
+                        Mostrar consigna en el Dashboard de los estudiantes (Técnico, Q.F. y Personal Clínico)
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Paneles Limpios: SOLO los Pacientes y Recetas de ESTE Taller (+ Importar del Archivo) -->
+    <div class="row g-3 mb-4">
+        <!-- Pacientes de este Taller -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="fw-bold small">
+                            <i class="bi bi-people-fill text-primary me-1"></i>Pacientes de este Taller
+                        </span>
+                        <span class="badge bg-primary" id="contadorPacientes">0</span>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-1">
+                        <button type="button"
+                                class="btn btn-primary btn-sm py-0 px-2 fw-semibold"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalNuevoPacienteInline">
+                            <i class="bi bi-person-plus-fill me-1"></i>+ Nuevo Paciente
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm py-0 px-2 fw-semibold"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalImportarPacientes">
+                            <i class="bi bi-folder2-open me-1"></i>Importar del Archivo
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-3">
+                    <div id="listaPacientesTaller" class="d-flex flex-column gap-2" style="max-height: 360px; overflow-y: auto;"></div>
+                    <div id="vacioPacientesTaller" class="text-center text-muted py-4 border rounded bg-light bg-opacity-50 d-none">
+                        <i class="bi bi-person-lines-fill fs-3 d-block mb-1 text-secondary"></i>
+                        <div class="small fw-semibold">Este taller aún no tiene pacientes asignados</div>
+                        <div class="small mt-1" style="font-size: 0.76rem;">
+                            Usa <strong>+ Nuevo Paciente</strong>, <strong>⚡ Generar Caso Aleatorio</strong> o <strong>Importar del Archivo</strong>.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recetas de este Taller -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="fw-bold small">
+                            <i class="bi bi-file-earmark-medical-fill text-danger me-1"></i>Recetas de este Taller
+                        </span>
+                        <span class="badge bg-danger" id="contadorRecetas">0</span>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center gap-1">
+                        <button type="button"
+                                class="btn btn-danger btn-sm py-0 px-2 fw-semibold"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalNuevaRecetaInline">
+                            <i class="bi bi-file-earmark-plus-fill me-1"></i>+ Nueva Receta
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm py-0 px-2 fw-semibold"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalImportarRecetas">
+                            <i class="bi bi-folder2-open me-1"></i>Importar del Archivo
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-3">
+                    <div id="listaRecetasTaller" class="d-flex flex-column gap-2" style="max-height: 360px; overflow-y: auto;"></div>
+                    <div id="vacioRecetasTaller" class="text-center text-muted py-4 border rounded bg-light bg-opacity-50 d-none">
+                        <i class="bi bi-file-earmark-medical fs-3 d-block mb-1 text-secondary"></i>
+                        <div class="small fw-semibold">Este taller aún no tiene recetas precargadas</div>
+                        <div class="small mt-1" style="font-size: 0.76rem;">
+                            Puedes dejarlo así para <em>recetas físicas en papel</em> o agregar recetas con <strong>+ Nueva Receta</strong> / <strong>Importar del Archivo</strong>.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inputs ocultos sincronizados con los pacientes y recetas del taller -->
+    <div id="hiddenEscenarioInputs" class="d-none"></div>
+
+    <div class="d-flex justify-content-end gap-2">
+        <a href="{% url 'core:escenario_list' %}" class="btn btn-outline-secondary">Cancelar</a>
+        <button type="submit" class="btn btn-cesfam px-4 fw-semibold">
+            <i class="bi bi-check-circle me-1"></i>
+            {% if modo == 'editar' %}Guardar Cambios{% else %}Crear Escenario{% endif %}
+        </button>
+    </div>
+</form>
+
+<!-- ============================================================
+     MODAL: IMPORTAR PACIENTES DESDE EL ARCHIVO GENERAL DEL CESFAM
+     ============================================================ -->
+<div class="modal fade" id="modalImportarPacientes" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-folder2-open me-2"></i>Importar Pacientes del Archivo General</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex gap-2 mb-3">
+                    <div class="input-group input-group-sm flex-grow-1">
+                        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" id="filtroArchivoPacientes" class="form-control" placeholder="Buscar por nombre, RUT, previsión o GES...">
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" id="btnSeleccionarTodosArchivoPac">Todos</button>
+                </div>
+                <div id="listaArchivoPacientes" class="border rounded p-2" style="max-height: 360px; overflow-y: auto;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm fw-bold" id="btnConfirmarImportarPacientes">
+                    <i class="bi bi-plus-circle me-1"></i>Agregar Seleccionados al Taller
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     MODAL: IMPORTAR RECETAS DESDE EL ARCHIVO GENERAL DEL CESFAM
+     ============================================================ -->
+<div class="modal fade" id="modalImportarRecetas" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-folder2-open me-2"></i>Importar Recetas del Archivo General</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex gap-2 mb-3">
+                    <div class="input-group input-group-sm flex-grow-1">
+                        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" id="filtroArchivoRecetas" class="form-control" placeholder="Buscar por N° receta, paciente o fármaco...">
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" id="btnSeleccionarTodasArchivoRec">Todas</button>
+                </div>
+                <div id="listaArchivoRecetas" class="border rounded p-2" style="max-height: 360px; overflow-y: auto;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger btn-sm fw-bold" id="btnConfirmarImportarRecetas">
+                    <i class="bi bi-plus-circle me-1"></i>Agregar Seleccionadas al Taller
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     MODAL AJAX: + NUEVO PACIENTE (SIN SALIR DEL FORMULARIO)
+     ============================================================ -->
+<div class="modal fade" id="modalNuevoPacienteInline" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>Nuevo Paciente para este Taller</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formNuevoPacienteInline" data-url="{% url 'core:api_escenario_crear_paciente' %}">
+                <div class="modal-body">
+                    <div id="errPacienteInline" class="alert alert-danger py-2 small d-none"></div>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">RUT <span class="text-danger">*</span></label>
+                            <input type="text" name="rut" id="inline_pac_rut" class="form-control form-control-sm" placeholder="Ej: 12.345.678-9" data-validate-rut required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Nombres <span class="text-danger">*</span></label>
+                            <input type="text" name="nombres" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Apellido Paterno <span class="text-danger">*</span></label>
+                            <input type="text" name="apellido_paterno" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Apellido Materno <span class="text-danger">*</span></label>
+                            <input type="text" name="apellido_materno" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Fecha de Nacimiento <span class="text-danger">*</span></label>
+                            <input type="date" name="fecha_nacimiento" class="form-control form-control-sm" value="1975-05-15" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Previsión (Red Pública) <span class="text-danger">*</span></label>
+                            <select name="prevision" class="form-select form-select-sm" required>
+                                {% for codigo, etiqueta in previsiones %}
+                                <option value="{{ codigo }}" {% if codigo == 'fonasa_b' %}selected{% endif %}>{{ etiqueta }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Patología GES (Opcional)</label>
+                            <select name="patologia_ges_id" class="form-select form-select-sm">
+                                <option value="">-- Sin patología GES --</option>
+                                {% for pat in patologias_ges %}
+                                <option value="{{ pat.pk }}">[{{ pat.codigo }}] {{ pat.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check mb-1">
+                                <input type="checkbox" name="cronico" id="inline_pac_cronico" class="form-check-input">
+                                <label class="form-check-label small fw-semibold" for="inline_pac_cronico">Paciente Crónico (PSCV)</label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 border-top pt-2 mt-1">
+                            <div class="small fw-bold text-primary mb-2">
+                                <i class="bi bi-person-check me-1"></i>Tercero Autorizado para Retiro (Opcional)
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <input type="text" name="tercero_autorizado_nombre" class="form-control form-control-sm" placeholder="Nombre completo del tercero">
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="text" name="tercero_autorizado_rut" class="form-control form-control-sm" placeholder="Ej: 12.345.678-9" data-validate-rut>
+                                </div>
+                                <div class="col-md-4">
+                                    <input type="text" name="tercero_autorizado_parentesco" class="form-control form-control-sm" placeholder="Parentesco / Vínculo">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold" id="btnGuardarPacienteInline">
+                        <i class="bi bi-check-lg me-1"></i>Crear y Agregar al Taller
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     MODAL AJAX: + NUEVA RECETA (SIN SALIR DEL FORMULARIO)
+     ============================================================ -->
+<div class="modal fade" id="modalNuevaRecetaInline" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-plus-fill me-2"></i>Nueva Receta para este Taller</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formNuevaRecetaInline" data-url="{% url 'core:api_escenario_crear_receta' %}">
+                <div class="modal-body">
+                    <div id="errRecetaInline" class="alert alert-danger py-2 small d-none"></div>
+                    <div class="row g-3">
+                        <div class="col-md-7">
+                            <label class="form-label small fw-semibold">Paciente <span class="text-danger">*</span></label>
+                            <select name="paciente_id" id="inline_rec_paciente" class="form-select form-select-sm" required></select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small fw-semibold">Tipo de Receta <span class="text-danger">*</span></label>
+                            <select name="tipo" class="form-select form-select-sm" required>
+                                <option value="simple">Receta Simple</option>
+                                <option value="retenida">Receta Retenida / Controlada</option>
+                                <option value="cronica">Receta Crónica</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Médico Prescriptor <span class="text-danger">*</span></label>
+                            <select name="medico_id" class="form-select form-select-sm" required>
+                                {% for med in medicos_habilitados %}
+                                <option value="{{ med.pk }}">{{ med }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Diagnóstico <span class="text-danger">*</span></label>
+                            <input type="text" name="diagnostico" class="form-control form-control-sm" placeholder="Ej: Hipertensión Arterial / Crisis de ansiedad" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Medicamento del Arsenal <span class="text-danger">*</span></label>
+                            <select name="medicamento_id" class="form-select form-select-sm" required>
+                                {% for med in medicamentos_arsenal %}
+                                <option value="{{ med.pk }}">
+                                    {{ med.nombre_generico }} {{ med.concentracion }}{% if med.es_controlado %} [CONTROLADO]{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-semibold">Cantidad <span class="text-danger">*</span></label>
+                            <input type="number" name="cantidad" class="form-control form-control-sm" value="30" min="1" max="180" required>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check mb-1">
+                                <input type="checkbox" name="simular_vencida" id="inline_rec_vencida" class="form-check-input">
+                                <label class="form-check-label small fw-semibold text-danger" for="inline_rec_vencida">
+                                    Simular receta vencida
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold">Posología</label>
+                            <input type="text" name="posologia" class="form-control form-control-sm" value="1 unidad cada 12 horas según indicación médica" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger btn-sm fw-bold" id="btnGuardarRecetaInline">
+                        <i class="bi bi-check-lg me-1"></i>Crear y Agregar al Taller
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const csrfToken = document.querySelector('#formEscenario input[name="csrfmiddlewaretoken"]').value;
+    const alertaInline = document.getElementById('alertaInlineConstructor');
+    const hiddenInputs = document.getElementById('hiddenEscenarioInputs');
+
+    // Catálogo en memoria (archivo general + seleccionados en este taller)
+    const pacientesMap = new Map();
+    const pacientesOrder = [];
+    const selectedPacientes = new Set([{% for pid in selected_pacientes_ids %}{{ pid }},{% endfor %}]);
+
+    {% for p in pacientes %}
+    (function() {
+        const obj = {
+            id: {{ p.pk }},
+            rut: "{{ p.rut|escapejs }}",
+            nombre_completo: "{{ p.nombre_completo|escapejs }}",
+            prevision_display: "{{ p.get_prevision_display|escapejs }}",
+            cronico: {% if p.cronico %}true{% else %}false{% endif %},
+            patologias_ges: [{% for ig in p.programas_ges_activos %}{ codigo: "{{ ig.patologia.codigo|escapejs }}", nombre: "{{ ig.patologia.nombre|escapejs }}" },{% endfor %}],
+            search_text: ("{{ p.nombre_completo|escapejs }} {{ p.rut|escapejs }} {{ p.get_prevision_display|escapejs }} {% if p.cronico %}cronico{% endif %} {% for ig in p.programas_ges_activos %}{{ ig.patologia.codigo|escapejs }} {{ ig.patologia.nombre|escapejs }} {% endfor %}").toLowerCase(),
+            nuevo: false
+        };
+        pacientesMap.set(obj.id, obj);
+        pacientesOrder.push(obj.id);
+    })();
+    {% endfor %}
+
+    const recetasMap = new Map();
+    const recetasOrder = [];
+    const selectedRecetas = new Set([{% for rid in selected_recetas_ids %}{{ rid }},{% endfor %}]);
+
+    {% for r in recetas %}
+    (function() {
+        const obj = {
+            id: {{ r.pk }},
+            numero_receta: "{{ r.numero_receta|escapejs }}",
+            paciente_id: {{ r.paciente_id }},
+            paciente_nombre: "{{ r.paciente.nombre_completo|escapejs }}",
+            paciente_rut: "{{ r.paciente.rut|escapejs }}",
+            tipo_display: "{{ r.get_tipo_display|escapejs }}",
+            estado: "{{ r.estado|escapejs }}",
+            estado_display: "{% if r.esta_vencida %}Vencida{% else %}{{ r.get_estado_display|escapejs }}{% endif %}",
+            esta_vencida: {% if r.esta_vencida %}true{% else %}false{% endif %},
+            detalles_resumen: "{% for det in r.detalles.all %}{{ det.medicamento.nombre_generico|escapejs }} ({{ det.cantidad_prescrita }}){% if not forloop.last %}, {% endif %}{% empty %}Sin ítems prescritos{% endfor %}",
+            search_text: ("{{ r.numero_receta|escapejs }} {{ r.paciente.nombre_completo|escapejs }} {{ r.paciente.rut|escapejs }} {{ r.get_tipo_display|escapejs }} {{ r.get_estado_display|escapejs }} {% for det in r.detalles.all %}{{ det.medicamento.nombre_generico|escapejs }} {% endfor %}").toLowerCase(),
+            nueva: false
+        };
+        recetasMap.set(obj.id, obj);
+        recetasOrder.push(obj.id);
+    })();
+    {% endfor %}
+
+    function mostrarAvisoInline(texto, tipo) {
+        alertaInline.className = 'alert alert-' + (tipo || 'success') + ' alert-dismissible fade show py-2 small shadow-sm mb-3';
+        alertaInline.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i><span class="msg-txt"></span>' +
+            '<button type="button" class="btn-close py-2" data-bs-dismiss="alert"></button>';
+        alertaInline.querySelector('.msg-txt').textContent = texto;
+    }
+
+    function sincronizarInputsOcultos() {
+        hiddenInputs.innerHTML = '';
+        selectedPacientes.forEach(function(pid) {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'pacientes';
+            inp.value = String(pid);
+            hiddenInputs.appendChild(inp);
+        });
+        selectedRecetas.forEach(function(rid) {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'recetas';
+            inp.value = String(rid);
+            hiddenInputs.appendChild(inp);
+        });
+    }
+
+    function renderizarTaller() {
+        const contPac = document.getElementById('listaPacientesTaller');
+        const vacioPac = document.getElementById('vacioPacientesTaller');
+        const contRec = document.getElementById('listaRecetasTaller');
+        const vacioRec = document.getElementById('vacioRecetasTaller');
+
+        contPac.innerHTML = '';
+        let nPac = 0;
+        pacientesOrder.forEach(function(pid) {
+            if (!selectedPacientes.has(pid)) return;
+            const pac = pacientesMap.get(pid);
+            if (!pac) return;
+            nPac++;
+
+            const card = document.createElement('div');
+            card.className = 'border rounded p-2 d-flex justify-content-between align-items-start gap-2 ' + (pac.nuevo ? 'bg-primary bg-opacity-10 border-primary-subtle' : 'bg-white');
+
+            const info = document.createElement('div');
+            info.className = 'small';
+            const title = document.createElement('div');
+            title.className = 'fw-bold text-dark';
+            title.textContent = pac.nombre_completo;
+
+            const badges = document.createElement('div');
+            badges.className = 'd-flex flex-wrap align-items-center gap-1 mt-1';
+            const rutCode = document.createElement('code');
+            rutCode.textContent = pac.rut;
+            badges.appendChild(rutCode);
+
+            const prev = document.createElement('span');
+            prev.className = 'badge bg-light text-dark border';
+            prev.textContent = pac.prevision_display;
+            badges.appendChild(prev);
+
+            if (pac.cronico) {
+                const cron = document.createElement('span');
+                cron.className = 'badge bg-warning text-dark';
+                cron.textContent = 'Crónico';
+                badges.appendChild(cron);
+            }
+            (pac.patologias_ges || []).forEach(function(g) {
+                const gb = document.createElement('span');
+                gb.className = 'badge bg-success';
+                gb.textContent = g.codigo;
+                badges.appendChild(gb);
+            });
+            if (pac.nuevo) {
+                const nb = document.createElement('span');
+                nb.className = 'badge bg-primary';
+                nb.textContent = 'Nuevo';
+                badges.appendChild(nb);
+            }
+
+            info.appendChild(title);
+            info.appendChild(badges);
+
+            const btnQuitar = document.createElement('button');
+            btnQuitar.type = 'button';
+            btnQuitar.className = 'btn btn-sm btn-outline-secondary py-0 px-2 text-nowrap';
+            btnQuitar.title = 'Quitar de este taller (no borra del archivo general)';
+            btnQuitar.innerHTML = '<i class="bi bi-x-lg"></i>';
+            btnQuitar.addEventListener('click', function() {
+                selectedPacientes.delete(pid);
+                renderizarTaller();
+            });
+
+            card.appendChild(info);
+            card.appendChild(btnQuitar);
+            contPac.appendChild(card);
+        });
+        vacioPac.classList.toggle('d-none', nPac > 0);
+        document.getElementById('contadorPacientes').textContent = String(nPac);
+
+        contRec.innerHTML = '';
+        let nRec = 0;
+        recetasOrder.forEach(function(rid) {
+            if (!selectedRecetas.has(rid)) return;
+            const rec = recetasMap.get(rid);
+            if (!rec) return;
+            nRec++;
+
+            const card = document.createElement('div');
+            card.className = 'border rounded p-2 d-flex justify-content-between align-items-start gap-2 ' + (rec.nueva ? 'bg-danger bg-opacity-10 border-danger-subtle' : 'bg-white');
+
+            const info = document.createElement('div');
+            info.className = 'small flex-grow-1';
+            const top = document.createElement('div');
+            top.className = 'd-flex flex-wrap align-items-center gap-1';
+            const code = document.createElement('code');
+            code.className = 'fw-bold';
+            code.textContent = rec.numero_receta;
+            const pName = document.createElement('span');
+            pName.className = 'fw-semibold text-dark';
+            pName.textContent = rec.paciente_nombre;
+            const est = document.createElement('span');
+            est.className = 'badge ' + (rec.esta_vencida ? 'bg-danger' : (rec.estado === 'total' ? 'bg-success' : 'bg-warning text-dark'));
+            est.textContent = rec.estado_display;
+            top.appendChild(code);
+            top.appendChild(pName);
+            top.appendChild(est);
+
+            const bottom = document.createElement('div');
+            bottom.className = 'text-muted mt-1';
+            bottom.style.fontSize = '0.75rem';
+            const tb = document.createElement('span');
+            tb.className = 'badge bg-light text-dark border me-1';
+            tb.textContent = rec.tipo_display;
+            bottom.appendChild(tb);
+            bottom.appendChild(document.createTextNode(rec.detalles_resumen));
+
+            info.appendChild(top);
+            info.appendChild(bottom);
+
+            const btnQuitar = document.createElement('button');
+            btnQuitar.type = 'button';
+            btnQuitar.className = 'btn btn-sm btn-outline-secondary py-0 px-2 text-nowrap';
+            btnQuitar.title = 'Quitar de este taller (no borra del archivo general)';
+            btnQuitar.innerHTML = '<i class="bi bi-x-lg"></i>';
+            btnQuitar.addEventListener('click', function() {
+                selectedRecetas.delete(rid);
+                renderizarTaller();
+            });
+
+            card.appendChild(info);
+            card.appendChild(btnQuitar);
+            contRec.appendChild(card);
+        });
+        vacioRec.classList.toggle('d-none', nRec > 0);
+        document.getElementById('contadorRecetas').textContent = String(nRec);
+
+        sincronizarInputsOcultos();
+    }
+
+    function renderizarModalArchivoPacientes() {
+        const cont = document.getElementById('listaArchivoPacientes');
+        const filtro = (document.getElementById('filtroArchivoPacientes').value || '').trim().toLowerCase();
+        cont.innerHTML = '';
+        let visibles = 0;
+
+        pacientesOrder.forEach(function(pid) {
+            if (selectedPacientes.has(pid)) return;
+            const pac = pacientesMap.get(pid);
+            if (!pac) return;
+            if (filtro && !pac.search_text.includes(filtro)) return;
+            visibles++;
+
+            const lbl = document.createElement('label');
+            lbl.className = 'd-flex align-items-start gap-2 p-2 border-bottom item-archivo-pac';
+            lbl.style.cursor = 'pointer';
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.className = 'form-check-input mt-1 chk-importar-pac';
+            chk.value = String(pid);
+
+            const body = document.createElement('div');
+            body.className = 'small';
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'fw-bold text-dark';
+            nameDiv.textContent = pac.nombre_completo;
+            const meta = document.createElement('div');
+            meta.className = 'd-flex flex-wrap gap-1 mt-1';
+            const rc = document.createElement('code');
+            rc.textContent = pac.rut;
+            meta.appendChild(rc);
+            const pb = document.createElement('span');
+            pb.className = 'badge bg-light text-dark border';
+            pb.textContent = pac.prevision_display;
+            meta.appendChild(pb);
+            if (pac.cronico) {
+                const cb = document.createElement('span');
+                cb.className = 'badge bg-warning text-dark';
+                cb.textContent = 'Crónico';
+                meta.appendChild(cb);
+            }
+            (pac.patologias_ges || []).forEach(function(g) {
+                const gb = document.createElement('span');
+                gb.className = 'badge bg-success';
+                gb.textContent = g.codigo;
+                meta.appendChild(gb);
+            });
+            body.appendChild(nameDiv);
+            body.appendChild(meta);
+            lbl.appendChild(chk);
+            lbl.appendChild(body);
+            cont.appendChild(lbl);
+        });
+
+        if (visibles === 0) {
+            cont.innerHTML = '<div class="text-center text-muted small py-3">Todos los pacientes del archivo ya están en este taller o no coinciden con la búsqueda.</div>';
+        }
+    }
+
+    function renderizarModalArchivoRecetas() {
+        const cont = document.getElementById('listaArchivoRecetas');
+        const filtro = (document.getElementById('filtroArchivoRecetas').value || '').trim().toLowerCase();
+        cont.innerHTML = '';
+        let visibles = 0;
+
+        recetasOrder.forEach(function(rid) {
+            if (selectedRecetas.has(rid)) return;
+            const rec = recetasMap.get(rid);
+            if (!rec) return;
+            if (filtro && !rec.search_text.includes(filtro)) return;
+            visibles++;
+
+            const lbl = document.createElement('label');
+            lbl.className = 'd-flex align-items-start gap-2 p-2 border-bottom item-archivo-rec';
+            lbl.style.cursor = 'pointer';
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.className = 'form-check-input mt-1 chk-importar-rec';
+            chk.value = String(rid);
+
+            const body = document.createElement('div');
+            body.className = 'small flex-grow-1';
+            const top = document.createElement('div');
+            top.className = 'd-flex flex-wrap align-items-center justify-content-between gap-1';
+            const left = document.createElement('span');
+            const rc = document.createElement('code');
+            rc.className = 'fw-bold';
+            rc.textContent = rec.numero_receta;
+            const pn = document.createElement('span');
+            pn.className = 'fw-semibold text-dark ms-1';
+            pn.textContent = rec.paciente_nombre;
+            left.appendChild(rc);
+            left.appendChild(pn);
+            const eb = document.createElement('span');
+            eb.className = 'badge ' + (rec.esta_vencida ? 'bg-danger' : 'bg-secondary');
+            eb.textContent = rec.estado_display;
+            top.appendChild(left);
+            top.appendChild(eb);
+
+            const bot = document.createElement('div');
+            bot.className = 'text-muted mt-1';
+            bot.style.fontSize = '0.74rem';
+            bot.textContent = rec.tipo_display + ' · ' + rec.detalles_resumen;
+
+            body.appendChild(top);
+            body.appendChild(bot);
+            lbl.appendChild(chk);
+            lbl.appendChild(body);
+            cont.appendChild(lbl);
+        });
+
+        if (visibles === 0) {
+            cont.innerHTML = '<div class="text-center text-muted small py-3">Todas las recetas del archivo ya están en este taller o no coinciden con la búsqueda.</div>';
+        }
+    }
+
+    function refrescarSelectPacientesReceta() {
+        const select = document.getElementById('inline_rec_paciente');
+        if (!select) return;
+        const prevVal = select.value;
+        select.innerHTML = '';
+
+        const enTaller = [];
+        const enArchivo = [];
+        pacientesOrder.forEach(function(pid) {
+            const p = pacientesMap.get(pid);
+            if (!p) return;
+            const item = { id: String(p.id), text: p.nombre_completo + ' (' + p.rut + ')' };
+            if (selectedPacientes.has(pid)) enTaller.push(item);
+            else enArchivo.push(item);
+        });
+
+        if (enTaller.length > 0) {
+            const grp = document.createElement('optgroup');
+            grp.label = 'Pacientes de este taller';
+            enTaller.forEach(function(p) {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = p.text;
+                grp.appendChild(o);
+            });
+            select.appendChild(grp);
+        }
+        if (enArchivo.length > 0) {
+            const grp = document.createElement('optgroup');
+            grp.label = 'Otros pacientes del Archivo General';
+            enArchivo.forEach(function(p) {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = p.text;
+                grp.appendChild(o);
+            });
+            select.appendChild(grp);
+        }
+
+        if (prevVal && select.querySelector('option[value="' + prevVal + '"]')) {
+            select.value = prevVal;
+        } else if (enTaller.length > 0) {
+            select.value = enTaller[0].id;
+        }
+    }
+
+    // Modalidad toggle
+    function actualizarModalidadUI() {
+        const esInc = document.getElementById('id_modalidad_incidencias').checked;
+        document.getElementById('panelIncidenciasAutomaticas').classList.toggle('d-none', !esInc);
+        document.querySelectorAll('.modalidad-card').forEach(function(card) {
+            const r = card.querySelector('.radio-modalidad');
+            card.classList.toggle('border-danger', Boolean(r && r.checked));
+            card.classList.toggle('bg-light', Boolean(r && r.checked));
+        });
+    }
+    document.querySelectorAll('.radio-modalidad').forEach(function(r) {
+        r.addEventListener('change', actualizarModalidadUI);
+    });
+    actualizarModalidadUI();
+
+    const chkQuiebre = document.getElementById('id_simular_quiebre');
+    const selMedQuiebre = document.getElementById('id_medicamento_quiebre');
+    if (chkQuiebre && selMedQuiebre) {
+        chkQuiebre.addEventListener('change', function() {
+            selMedQuiebre.disabled = !this.checked;
+            selMedQuiebre.required = this.checked;
+        });
+    }
+
+    // Eventos modales Importar del Archivo
+    const modalImpPac = document.getElementById('modalImportarPacientes');
+    modalImpPac.addEventListener('show.bs.modal', function() {
+        document.getElementById('filtroArchivoPacientes').value = '';
+        renderizarModalArchivoPacientes();
+    });
+    document.getElementById('filtroArchivoPacientes').addEventListener('input', renderizarModalArchivoPacientes);
+    document.getElementById('btnSeleccionarTodosArchivoPac').addEventListener('click', function() {
+        document.querySelectorAll('.chk-importar-pac').forEach(function(c) { c.checked = true; });
+    });
+    document.getElementById('btnConfirmarImportarPacientes').addEventListener('click', function() {
+        let count = 0;
+        document.querySelectorAll('.chk-importar-pac:checked').forEach(function(c) {
+            selectedPacientes.add(Number(c.value));
+            count++;
+        });
+        renderizarTaller();
+        bootstrap.Modal.getOrCreateInstance(modalImpPac).hide();
+        if (count > 0) mostrarAvisoInline('Se importaron ' + count + ' paciente(s) desde el Archivo General a este taller.', 'success');
+    });
+
+    const modalImpRec = document.getElementById('modalImportarRecetas');
+    modalImpRec.addEventListener('show.bs.modal', function() {
+        document.getElementById('filtroArchivoRecetas').value = '';
+        renderizarModalArchivoRecetas();
+    });
+    document.getElementById('filtroArchivoRecetas').addEventListener('input', renderizarModalArchivoRecetas);
+    document.getElementById('btnSeleccionarTodasArchivoRec').addEventListener('click', function() {
+        document.querySelectorAll('.chk-importar-rec').forEach(function(c) { c.checked = true; });
+    });
+    document.getElementById('btnConfirmarImportarRecetas').addEventListener('click', function() {
+        let count = 0;
+        document.querySelectorAll('.chk-importar-rec:checked').forEach(function(c) {
+            const rid = Number(c.value);
+            selectedRecetas.add(rid);
+            const rec = recetasMap.get(rid);
+            if (rec && rec.paciente_id) selectedPacientes.add(rec.paciente_id);
+            count++;
+        });
+        renderizarTaller();
+        bootstrap.Modal.getOrCreateInstance(modalImpRec).hide();
+        if (count > 0) mostrarAvisoInline('Se importaron ' + count + ' receta(s) (junto con sus pacientes) desde el Archivo General.', 'success');
+    });
+
+    // Modal + Nueva Receta
+    const modalRecInline = document.getElementById('modalNuevaRecetaInline');
+    modalRecInline.addEventListener('show.bs.modal', refrescarSelectPacientesReceta);
+
+    // AJAX: + Nuevo Paciente
+    const formPacInline = document.getElementById('formNuevoPacienteInline');
+    const errPacInline = document.getElementById('errPacienteInline');
+    formPacInline.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        errPacInline.classList.add('d-none');
+        const btn = document.getElementById('btnGuardarPacienteInline');
+        btn.disabled = true;
+
+        const payload = {};
+        new FormData(formPacInline).forEach(function(v, k) { payload[k] = v; });
+        payload.cronico = document.getElementById('inline_pac_cronico').checked;
+
+        try {
+            const resp = await fetch(formPacInline.dataset.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                errPacInline.textContent = data.error || 'No fue posible crear el paciente.';
+                errPacInline.classList.remove('d-none');
+            } else {
+                const pac = Object.assign({}, data.paciente, { nuevo: true });
+                pacientesMap.set(pac.id, pac);
+                pacientesOrder.unshift(pac.id);
+                selectedPacientes.add(pac.id);
+                renderizarTaller();
+                formPacInline.reset();
+                bootstrap.Modal.getOrCreateInstance(document.getElementById('modalNuevoPacienteInline')).hide();
+                mostrarAvisoInline('Paciente "' + pac.nombre_completo + '" (' + pac.rut + ') creado y agregado a este taller.', 'success');
+            }
+        } catch (err) {
+            errPacInline.textContent = 'Error de conexión al crear el paciente.';
+            errPacInline.classList.remove('d-none');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // AJAX: + Nueva Receta
+    const formRecInline = document.getElementById('formNuevaRecetaInline');
+    const errRecInline = document.getElementById('errRecetaInline');
+    formRecInline.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        errRecInline.classList.add('d-none');
+        const btn = document.getElementById('btnGuardarRecetaInline');
+        btn.disabled = true;
+
+        const payload = {};
+        new FormData(formRecInline).forEach(function(v, k) { payload[k] = v; });
+        payload.simular_vencida = document.getElementById('inline_rec_vencida').checked;
+
+        try {
+            const resp = await fetch(formRecInline.dataset.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                errRecInline.textContent = data.error || 'No fue posible crear la receta.';
+                errRecInline.classList.remove('d-none');
+            } else {
+                const rec = Object.assign({}, data.receta, { nueva: true });
+                recetasMap.set(rec.id, rec);
+                recetasOrder.unshift(rec.id);
+                selectedRecetas.add(rec.id);
+                if (rec.paciente_id) selectedPacientes.add(rec.paciente_id);
+                renderizarTaller();
+                formRecInline.reset();
+                bootstrap.Modal.getOrCreateInstance(modalRecInline).hide();
+                mostrarAvisoInline('Receta ' + rec.numero_receta + ' creada y agregada a este taller junto con su paciente.', 'success');
+            }
+        } catch (err) {
+            errRecInline.textContent = 'Error de conexión al crear la receta.';
+            errRecInline.classList.remove('d-none');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // AJAX: Generar Caso Aleatorio
+    const btnRandom = document.getElementById('btnGenerarCasoAleatorio');
+    btnRandom.addEventListener('click', async function() {
+        const originalHtml = btnRandom.innerHTML;
+        btnRandom.disabled = true;
+        btnRandom.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Generando...';
+        try {
+            const resp = await fetch(btnRandom.dataset.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({}),
+            });
+            const data = await resp.json();
+            if (resp.ok && data.ok) {
+                const pac = Object.assign({}, data.paciente, { nuevo: true });
+                const rec = Object.assign({}, data.receta, { nueva: true });
+                pacientesMap.set(pac.id, pac);
+                pacientesOrder.unshift(pac.id);
+                selectedPacientes.add(pac.id);
+                recetasMap.set(rec.id, rec);
+                recetasOrder.unshift(rec.id);
+                selectedRecetas.add(rec.id);
+                renderizarTaller();
+                mostrarAvisoInline(
+                    'Caso aleatorio creado para este taller: ' + pac.nombre_completo + ' (' + pac.rut + ') + Receta ' + rec.numero_receta + '.',
+                    'success'
+                );
+            } else {
+                mostrarAvisoInline(data.error || 'No fue posible generar el caso aleatorio.', 'danger');
+            }
+        } catch (err) {
+            mostrarAvisoInline('Error de conexión al generar el caso aleatorio.', 'danger');
+        } finally {
+            btnRandom.disabled = false;
+            btnRandom.innerHTML = originalHtml;
+        }
+    });
+
+    renderizarTaller();
+});
+</script>
+{% endblock %}

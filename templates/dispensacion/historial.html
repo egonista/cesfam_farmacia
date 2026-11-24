@@ -2,7 +2,48 @@
 {% block title %}Historial de Dispensaciones{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <h4><i class="bi bi-clock-history me-2"></i>Historial de Dispensaciones</h4>
-    <div class="card"><div class="card-body"><div class="table-responsive"><table class="table table-cesfam"><thead><tr><th>#</th><th>Receta</th><th>Paciente</th><th>Dispensador</th><th>Tercero</th><th>Copago</th><th>Fecha</th><th></th></tr></thead><tbody>{% for d in dispensaciones %}<tr><td>{{ d.id }}</td><td>{{ d.receta.numero_receta }}</td><td>{{ d.receta.paciente.nombre_completo }}</td><td>{{ d.usuario_dispensador.get_full_name }}</td><td>{% if d.retiro_tercero %}<span class="badge bg-info">Sí</span>{% else %}—{% endif %}</td><td>$0</td><td>{{ d.fecha|date:"d/m/Y H:i" }}</td><td><a href="{% url 'dispensacion:dispensacion_detalle' d.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td></tr>{% empty %}<tr><td colspan="8" class="text-center text-muted">Sin dispensaciones.</td></tr>{% endfor %}</tbody></table></div></div></div>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-clock-history text-danger me-2"></i>Historial de Dispensaciones</h4>
+            <p class="text-muted small mb-0">Comprobantes de entregas asistenciales ($0 copago) y retiros por terceros autorizados</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            {% if user.rol == 'quimico' or user.rol == 'tecnico' %}
+            <a href="{% url 'dispensacion:dispensar' %}" class="btn btn-outline-dark btn-sm">
+                <i class="bi bi-clipboard2-check me-1"></i>Ventanilla
+            </a>
+            {% endif %}
+            <a href="{% url 'dispensacion:receta_list' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-file-earmark-medical me-1"></i>Recetas Médicas
+            </a>
+        </div>
+    </div>
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-cesfam align-middle mb-0">
+                    <thead>
+                        <tr><th>#</th><th>Receta</th><th>Paciente</th><th>Dispensador</th><th>Tercero</th><th>Copago</th><th>Fecha</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        {% for d in dispensaciones %}
+                        <tr>
+                            <td>{{ d.id }}</td>
+                            <td><code><strong>{{ d.receta.numero_receta }}</strong></code></td>
+                            <td>{{ d.receta.paciente.nombre_completo }}</td>
+                            <td>{{ d.usuario_dispensador.get_full_name }}</td>
+                            <td>{% if d.retiro_tercero %}<span class="badge bg-info">Sí</span>{% else %}—{% endif %}</td>
+                            <td>$0</td>
+                            <td>{{ d.fecha|date:"d/m/Y H:i" }}</td>
+                            <td><a href="{% url 'dispensacion:dispensacion_detalle' d.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="8" class="text-center text-muted py-4">Sin dispensaciones registradas.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

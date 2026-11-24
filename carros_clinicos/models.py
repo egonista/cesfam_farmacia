@@ -18,6 +18,7 @@ class CarroClinico(models.Model):
         INCOMPLETO = 'incompleto', 'Incompleto - En Reposición'
         EN_USO = 'en_uso', 'En Uso (Emergencia)'
         MANTENIMIENTO = 'mantenimiento', 'En Mantenimiento'
+        SIN_DOTACION = 'sin_dotacion', 'Sin Dotación Configurada'
 
     nombre = models.CharField(max_length=100, verbose_name='Nombre del carro')
     tipo = models.CharField(
@@ -33,7 +34,7 @@ class CarroClinico(models.Model):
     estado = models.CharField(
         max_length=20,
         choices=EstadoCarro.choices,
-        default=EstadoCarro.COMPLETO,
+        default=EstadoCarro.SIN_DOTACION,
         verbose_name='Estado actual'
     )
     numero_precinto = models.CharField(
@@ -68,11 +69,52 @@ class CarroClinico(models.Model):
 
     @property
     def esta_completo(self):
-        """Verifica si todos los ítems de la plantilla están completos."""
-        for item in self.plantilla_items.all():
+        """Verifica si el carro tiene dotación configurada y todos los ítems completos."""
+        items = list(self.plantilla_items.all())
+        if not items:
+            return False
+        for item in items:
             if item.cantidad_actual < item.cantidad_requerida:
                 return False
         return True
+
+    @property
+    def estado_efectivo(self):
+        """Nunca reporta Operativo si el carro tiene 0 ítems en su plantilla canónica."""
+        if not self.plantilla_items.exists():
+            return self.EstadoCarro.SIN_DOTACION
+        return self.estado
+
+    @property
+    def estado_efectivo_display(self):
+        if not self.plantilla_items.exists():
+            return self.EstadoCarro.SIN_DOTACION.label
+        return self.get_estado_display()
+
+    @property
+    def total_faltantes(self):
+        """Suma total de unidades faltantes en los ítems de la plantilla del carro."""
+        return sum(item.faltante for item in self.plantilla_items.all())
+
+    @property
+    def tiene_lotes_criticos(self):
+        """True si algún ítem del carro tiene lote vencido o por vencer en <= 60 días."""
+        return any(item.tiene_alerta_vencimiento for item in self.plantilla_items.all())
+
+    @property
+    def total_items_por_vencer(self):
+        """Cantidad de ítems del carro cuyo lote de referencia está vencido o vence en <= 60 días."""
+        return sum(1 for item in self.plantilla_items.all() if item.tiene_alerta_vencimiento)
+
+    @property
+    def precinto_roto(self):
+        """True si el carro tiene unidades faltantes o está en estado Incompleto - En Reposición."""
+        return self.total_faltantes > 0 or self.estado_efectivo == self.EstadoCarro.INCOMPLETO
+
+    @property
+    def tiene_historial_operativo(self):
+        """True si el carro registra consumos o reposiciones históricas."""
+        return self.consumos.exists() or self.reposiciones.exists()
 
 
 class PlantillaItemCarro(models.Model):
@@ -119,6 +161,23 @@ class PlantillaItemCarro(models.Model):
     @property
     def faltante(self):
         return max(0, self.cantidad_requerida - self.cantidad_actual)
+
+    @property
+    def lote_referencia(self):
+        """Retorna el lote de la última reposición física del ítem o el primer lote FEFO disponible."""
+        ultima_repo = self.reposiciones.select_related('lote').order_by('-fecha').first()
+        if ultima_repo and ultima_repo.lote_id:
+            return ultima_repo.lote
+        lote_vigente = self.medicamento.lotes_fefo().first()
+        if lote_vigente:
+            return lote_vigente
+        return self.medicamento.lotes.filter(activo=True, en_cuarentena=False).order_by('fecha_vencimiento').first()
+
+    @property
+    def tiene_alerta_vencimiento(self):
+        """True si el lote asignado está vencido o vence en 60 días o menos."""
+        lote = self.lote_referencia
+        return bool(lote and lote.dias_para_vencer <= 60)
 
 
 class ConsumoCarroClinico(models.Model):

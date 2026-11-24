@@ -4,52 +4,99 @@
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h4 class="mb-1"><i class="bi bi-cart3 text-primary me-2"></i>Carros Clínicos Asistenciales</h4>
-            <p class="text-muted small mb-0">Gestión de dotación para emergencias (Carro de Paro) y administración intrahospitalaria (Carro Unidosis)</p>
+            <h4 class="mb-1 fw-bolder"><i class="bi bi-heart-pulse-fill text-danger me-2"></i>Carros Clínicos Asistenciales</h4>
+            <p class="text-muted small mb-0">Control de dotación de emergencia (Carro de Paro) y administración de sala (Carro Unidosis)</p>
         </div>
+        {% if user.rol == 'admin' or user.rol == 'quimico' %}
+        <button type="button" class="btn btn-cesfam btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoCarro">
+            <i class="bi bi-plus-circle me-1"></i>Nuevo Carro Clínico
+        </button>
+        {% endif %}
     </div>
 
     <div class="row g-4">
         {% for carro in carros %}
         <div class="col-md-6 col-xl-4">
-            <div class="card h-100 shadow-sm border-0 border-top border-4 {% if carro.estado == 'completo' %}border-success{% elif carro.estado == 'incompleto' %}border-danger{% else %}border-warning{% endif %}">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
+            <div class="card h-100 shadow-sm border-0 border-top border-4 {% if carro.estado_efectivo == 'sin_dotacion' %}border-secondary{% elif carro.precinto_roto %}border-danger{% elif carro.estado_efectivo == 'completo' %}border-success{% else %}border-warning{% endif %}">
+                <div class="card-body d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
                         <div>
                             <span class="badge {% if carro.tipo == 'paro' %}bg-danger{% else %}bg-primary{% endif %} mb-1">
                                 {{ carro.get_tipo_display }}
                             </span>
                             <h5 class="fw-bold mb-0">{{ carro.nombre }}</h5>
                         </div>
-                        <span class="badge {% if carro.estado == 'completo' %}bg-success{% elif carro.estado == 'incompleto' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
-                            {{ carro.get_estado_display }}
+                        {% if carro.total_faltantes > 0 %}
+                        <span class="badge bg-warning text-dark border border-danger fw-bold text-nowrap">
+                            ⚠ Requiere Reposición ({{ carro.total_faltantes }} faltantes)
+                        </span>
+                        {% elif carro.estado_efectivo == 'completo' %}
+                        <span class="badge bg-success text-nowrap">
+                            <i class="bi bi-shield-lock-fill me-1"></i>Sellado · Completo - Operativo
+                        </span>
+                        {% else %}
+                        <span class="badge {% if carro.estado_efectivo == 'incompleto' %}bg-danger{% elif carro.estado_efectivo == 'sin_dotacion' %}bg-secondary{% else %}bg-warning text-dark{% endif %} text-nowrap">
+                            {{ carro.estado_efectivo_display }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    {% if carro.total_items_por_vencer > 0 %}
+                    <div class="mb-2">
+                        <span class="badge bg-warning text-dark border border-warning fw-semibold">
+                            ⏳ {{ carro.total_items_por_vencer }} ítem{{ carro.total_items_por_vencer|pluralize:"s" }} por vencer
                         </span>
                     </div>
+                    {% endif %}
 
                     <p class="text-muted small mb-3">
                         <i class="bi bi-geo-alt-fill text-danger me-1"></i><strong>Ubicación:</strong> {{ carro.ubicacion_fisica }}
                     </p>
 
-                    <div class="bg-light rounded p-2 mb-3">
-                        <div class="d-flex justify-content-between small mb-1">
+                    <div class="rounded p-2 mb-3 {% if carro.precinto_roto %}bg-danger bg-opacity-10 border border-danger-subtle{% else %}bg-light{% endif %}">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center small mb-1 gap-1">
                             <span>Precinto de Seguridad:</span>
-                            <strong class="text-dark">{{ carro.numero_precinto|default:"Sin precinto" }}</strong>
+                            {% if carro.precinto_roto %}
+                            <span class="badge bg-danger text-white">
+                                <i class="bi bi-unlock-fill me-1"></i>Precinto Roto — Pendiente Resellado
+                            </span>
+                            {% else %}
+                            <strong class="text-dark">
+                                {% if carro.numero_precinto %}
+                                <i class="bi bi-lock-fill text-success me-1"></i>{{ carro.numero_precinto }}
+                                {% else %}
+                                Sin precinto
+                                {% endif %}
+                            </strong>
+                            {% endif %}
                         </div>
+                        {% if carro.precinto_roto and carro.numero_precinto %}
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span class="text-muted">Precinto anterior:</span>
+                            <del class="text-muted">{{ carro.numero_precinto }}</del>
+                        </div>
+                        {% endif %}
                         <div class="d-flex justify-content-between small">
                             <span>Último precintado:</span>
                             <span class="text-muted">{{ carro.fecha_ultimo_precinto|date:"d/m/Y H:i"|default:"—" }}</span>
                         </div>
                     </div>
 
-                    <div class="mb-3">
+                    <div class="mb-3 flex-grow-1">
                         <div class="d-flex justify-content-between small mb-1">
                             <span>Ítems de Plantilla Canónica:</span>
                             <span>{{ carro.plantilla_items.count }} ítems</span>
                         </div>
+                        {% if carro.total_faltantes > 0 %}
+                        <div class="d-flex justify-content-between small text-danger fw-bold">
+                            <span>Unidades faltantes por reponer:</span>
+                            <span>-{{ carro.total_faltantes }} unid.</span>
+                        </div>
+                        {% endif %}
                     </div>
 
-                    <div class="d-grid">
-                        <a href="{% url 'carros_clinicos:carro_detalle' carro.pk %}" class="btn btn-outline-primary">
+                    <div class="d-grid mt-auto">
+                        <a href="{% url 'carros_clinicos:carro_detalle' carro.pk %}" class="btn {% if carro.total_faltantes > 0 %}btn-danger{% else %}btn-outline-primary{% endif %}">
                             <i class="bi bi-eye-fill me-1"></i>Ver Dotación y Reposición
                         </a>
                     </div>
@@ -64,4 +111,45 @@
         {% endfor %}
     </div>
 </div>
+
+{% if user.rol == 'admin' or user.rol == 'quimico' %}
+<div class="modal fade" id="modalNuevoCarro" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Registrar Nuevo Carro Clínico</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Nombre Identificador del Carro</label>
+                        <input type="text" name="nombre" class="form-control" placeholder="Ej: Carro de Paro N° 2 - Urgencia Pediátrica" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Tipo de Carro</label>
+                        <select name="tipo" class="form-select">
+                            <option value="paro">Carro de Paro (Emergencia Vital)</option>
+                            <option value="unidosis">Carro de Unidosis / Tratamiento</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ubicación Física / Servicio</label>
+                        <input type="text" name="ubicacion_fisica" class="form-control" placeholder="Ej: Box de Reanimación N° 2" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Precinto de Seguridad Inicial</label>
+                        <input type="text" name="numero_precinto" class="form-control" placeholder="Ej: PREC-2026-0095" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-check-lg me-1"></i>Crear Carro</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,360 @@
+{% extends 'base.html' %}
+{% block title %}Banco de Pacientes — Archivo Docente{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <h4 class="fw-bolder mb-0">
+            <i class="bi bi-folder2-open text-danger me-2"></i>Banco de Pacientes (Archivo General)
+        </h4>
+        <p class="text-muted small mb-0">
+            Repositorio completo de casos clínicos del CESFAM: revisa fichas, crea pacientes libres y asígnalos a cualquier escenario
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-cesfam btn-sm px-3 py-2 fw-semibold" data-bs-toggle="modal" data-bs-target="#modalNuevoPacienteLibre">
+            <i class="bi bi-person-plus-fill me-1"></i>+ Nuevo Paciente Libre
+        </button>
+    </div>
+</div>
+
+<!-- Pestañas de la Zona Docente -->
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link text-muted fw-semibold" href="{% url 'core:escenario_list' %}">
+            <i class="bi bi-easel2-fill me-1"></i>Escenarios y Talleres
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link active fw-bold text-dark" href="{% url 'core:banco_pacientes' %}">
+            <i class="bi bi-folder2-open text-danger me-1"></i>Banco de Pacientes
+            <span class="badge bg-dark ms-1">{{ total_archivo }}</span>
+        </a>
+    </li>
+</ul>
+
+<!-- Resumen Compacto -->
+<div class="row g-2 mb-3">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
+                <span class="small text-muted fw-semibold">Total en Archivo General</span>
+                <span class="badge bg-dark fs-6">{{ total_archivo }}</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
+                <span class="small text-muted fw-semibold">En Escenario Activo</span>
+                <span class="badge bg-success fs-6">{{ total_en_activo }}</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
+                <span class="small text-muted fw-semibold">Libres (sin escenario asignado)</span>
+                <span class="badge bg-secondary fs-6">{{ total_libres }}</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Buscador + Filtro por Escenario -->
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <form method="get" class="row g-2 mb-3 align-items-center">
+            <div class="col-md-5">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" name="q" class="form-control" placeholder="Buscar por RUT, nombre o apellido..." value="{{ q }}">
+                </div>
+            </div>
+            <div class="col-md-4">
+                <select name="escenario" class="form-select form-select-sm">
+                    <option value="">Todos los pacientes ({{ total_archivo }})</option>
+                    <option value="libres" {% if filtro_esc == 'libres' %}selected{% endif %}>Libres — sin escenario asignado ({{ total_libres }})</option>
+                    {% for esc in escenarios_todos %}
+                    <option value="{{ esc.pk }}" {% if filtro_esc == esc.pk|stringformat:"s" %}selected{% endif %}>
+                        {{ esc.nombre }}{% if esc.activo %} (Activo){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-1">
+                <button type="submit" class="btn btn-dark btn-sm flex-grow-1 fw-semibold">
+                    <i class="bi bi-funnel me-1"></i>Filtrar
+                </button>
+                {% if q or filtro_esc %}
+                <a href="{% url 'core:banco_pacientes' %}" class="btn btn-outline-secondary btn-sm" title="Limpiar filtros">
+                    <i class="bi bi-x-lg"></i>
+                </a>
+                {% endif %}
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-cesfam align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>RUT</th>
+                        <th>Paciente</th>
+                        <th>Previsión</th>
+                        <th>Perfil / GES</th>
+                        <th class="text-center">Recetas</th>
+                        <th>Escenarios Asignados</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in pacientes %}
+                    <tr>
+                        <td class="text-nowrap"><code><strong>{{ p.rut }}</strong></code></td>
+                        <td>
+                            <div class="fw-bold text-dark">{{ p.nombre_completo }}</div>
+                            <div class="text-muted" style="font-size: 0.74rem;">Nac: {{ p.fecha_nacimiento|date:"d/m/Y" }}</div>
+                        </td>
+                        <td><span class="badge bg-primary">{{ p.get_prevision_display }}</span></td>
+                        <td>
+                            {% if p.cronico %}
+                            <span class="badge bg-warning text-dark mb-1">Crónico</span>
+                            {% endif %}
+                            {% for insc in p.programas_ges_activos %}
+                            <span class="badge bg-success mb-1" title="{{ insc.patologia.nombre }}">{{ insc.patologia.codigo }}</span>
+                            {% empty %}
+                            {% if not p.cronico %}
+                            <span class="badge bg-light text-muted border">General</span>
+                            {% endif %}
+                            {% endfor %}
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-light text-dark border">{{ p.total_recetas }}</span>
+                        </td>
+                        <td>
+                            {% for esc in p.escenarios.all %}
+                            <span class="badge {% if esc.activo %}bg-success bg-opacity-10 text-success border border-success-subtle{% else %}bg-light text-dark border{% endif %} mb-1" title="{{ esc.nombre }}">
+                                {% if esc.activo %}<i class="bi bi-broadcast me-1"></i>{% endif %}{{ esc.nombre|truncatechars:26 }}
+                            </span>
+                            {% empty %}
+                            <span class="badge bg-secondary bg-opacity-10 text-secondary border">Libre (sin asignar)</span>
+                            {% endfor %}
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-dark btn-asignar-escenarios"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#modalAsignarEscenarios"
+                                    data-url="{% url 'core:banco_paciente_asignar_escenarios' p.pk %}"
+                                    data-nombre="{{ p.nombre_completo }} ({{ p.rut }})"
+                                    data-escenarios="{{ p.escenarios_ids_csv }}">
+                                <i class="bi bi-easel2 me-1"></i>Asignar a Escenarios
+                            </button>
+                            <a href="{% url 'core:paciente_detalle' p.pk %}" class="btn btn-sm btn-outline-primary" title="Ver ficha completa y recetas">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            No se encontraron pacientes con los filtros seleccionados.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Asignar Paciente a Escenarios -->
+<div class="modal fade" id="modalAsignarEscenarios" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-easel2-fill me-2"></i>Asignar a Escenarios</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="formAsignarEscenarios" action="">
+                {% csrf_token %}
+                <input type="hidden" name="next_query" value="{{ request.GET.urlencode }}">
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">
+                        Selecciona los escenarios donde participará <strong id="asignarPacienteNombre" class="text-dark"></strong>:
+                    </p>
+                    <div class="border rounded p-2 d-flex flex-column gap-2">
+                        {% for esc in escenarios_todos %}
+                        <label class="d-flex align-items-center justify-content-between p-2 rounded border-bottom mb-0" style="cursor: pointer;">
+                            <span class="d-flex align-items-center gap-2 small">
+                                <input type="checkbox" name="escenarios" value="{{ esc.pk }}" class="form-check-input mt-0 chk-asignar-esc">
+                                <span class="fw-semibold text-dark">{{ esc.nombre }}</span>
+                            </span>
+                            {% if esc.activo %}
+                            <span class="badge bg-success">Activo</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Inactivo</span>
+                            {% endif %}
+                        </label>
+                        {% empty %}
+                        <div class="text-muted small text-center py-2">No hay escenarios creados todavía.</div>
+                        {% endfor %}
+                    </div>
+                    <div class="text-muted mt-2" style="font-size: 0.74rem;">
+                        <i class="bi bi-info-circle me-1"></i>Si desmarcas todos, el paciente quedará <strong>Libre</strong> en el archivo general.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam btn-sm fw-bold">
+                        <i class="bi bi-check-lg me-1"></i>Guardar Asignación
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: + Nuevo Paciente Libre (guardado en archivo sin asignar a ningún escenario) -->
+<div class="modal fade" id="modalNuevoPacienteLibre" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>Nuevo Paciente Libre (Archivo General)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formNuevoPacienteLibre" data-url="{% url 'core:api_escenario_crear_paciente' %}">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div id="errPacienteLibre" class="alert alert-danger py-2 small d-none"></div>
+                    <div class="alert alert-light border py-2 small text-muted mb-3">
+                        <i class="bi bi-shield-check text-success me-1"></i>
+                        Este paciente quedará guardado como <strong>Libre</strong> en el Banco de Pacientes para asignarlo al escenario que elijas.
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">RUT <span class="text-danger">*</span></label>
+                            <input type="text" name="rut" class="form-control form-control-sm" placeholder="Ej: 12.345.678-9" data-validate-rut required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Nombres <span class="text-danger">*</span></label>
+                            <input type="text" name="nombres" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Apellido Paterno <span class="text-danger">*</span></label>
+                            <input type="text" name="apellido_paterno" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Apellido Materno <span class="text-danger">*</span></label>
+                            <input type="text" name="apellido_materno" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Fecha de Nacimiento <span class="text-danger">*</span></label>
+                            <input type="date" name="fecha_nacimiento" class="form-control form-control-sm" value="1975-05-15" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Previsión (Red Pública) <span class="text-danger">*</span></label>
+                            <select name="prevision" class="form-select form-select-sm" required>
+                                {% for codigo, etiqueta in previsiones %}
+                                <option value="{{ codigo }}" {% if codigo == 'fonasa_b' %}selected{% endif %}>{{ etiqueta }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Patología GES (Opcional)</label>
+                            <select name="patologia_ges_id" class="form-select form-select-sm">
+                                <option value="">-- Sin patología GES --</option>
+                                {% for pat in patologias_ges %}
+                                <option value="{{ pat.pk }}">[{{ pat.codigo }}] {{ pat.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check mb-1">
+                                <input type="checkbox" name="cronico" id="chkLibreCronico" class="form-check-input">
+                                <label class="form-check-label small fw-semibold" for="chkLibreCronico">Paciente Crónico (PSCV)</label>
+                            </div>
+                        </div>
+                        <div class="col-12 border-top pt-2 mt-1">
+                            <div class="small fw-bold text-primary mb-2">
+                                <i class="bi bi-person-check me-1"></i>Tercero Autorizado para Retiro (Opcional)
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <input type="text" name="tercero_autorizado_nombre" class="form-control form-control-sm" placeholder="Nombre completo del tercero">
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="text" name="tercero_autorizado_rut" class="form-control form-control-sm" placeholder="Ej: 12.345.678-9" data-validate-rut>
+                                </div>
+                                <div class="col-md-4">
+                                    <input type="text" name="tercero_autorizado_parentesco" class="form-control form-control-sm" placeholder="Parentesco / Vínculo">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold" id="btnGuardarPacienteLibre">
+                        <i class="bi bi-check-lg me-1"></i>Guardar en Banco de Pacientes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Modal Asignar a Escenarios
+    document.querySelectorAll('.btn-asignar-escenarios').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('formAsignarEscenarios').action = this.dataset.url;
+            document.getElementById('asignarPacienteNombre').textContent = this.dataset.nombre;
+            const ids = new Set((this.dataset.escenarios || '').split(',').filter(Boolean));
+            document.querySelectorAll('.chk-asignar-esc').forEach(function(chk) {
+                chk.checked = ids.has(chk.value);
+            });
+        });
+    });
+
+    // Modal + Nuevo Paciente Libre vía AJAX
+    const formLibre = document.getElementById('formNuevoPacienteLibre');
+    const errLibre = document.getElementById('errPacienteLibre');
+    formLibre.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        errLibre.classList.add('d-none');
+        const btn = document.getElementById('btnGuardarPacienteLibre');
+        btn.disabled = true;
+
+        const csrf = formLibre.querySelector('input[name="csrfmiddlewaretoken"]').value;
+        const payload = {};
+        new FormData(formLibre).forEach(function(v, k) { if (k !== 'csrfmiddlewaretoken') payload[k] = v; });
+        payload.cronico = document.getElementById('chkLibreCronico').checked;
+
+        try {
+            const resp = await fetch(formLibre.dataset.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': csrf },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                errLibre.textContent = data.error || 'No fue posible crear el paciente.';
+                errLibre.classList.remove('d-none');
+            } else {
+                window.location.reload();
+            }
+        } catch (err) {
+            errLibre.textContent = 'Error de conexión al guardar el paciente.';
+            errLibre.classList.remove('d-none');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %}

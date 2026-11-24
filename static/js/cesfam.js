@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         feedback.classList.add('invalid-feedback');
                         this.parentNode.insertBefore(feedback, this.nextSibling);
                     }
-                    feedback.textContent = 'RUT inválido (Módulo 11). Verifique el número ingresado.';
+                    feedback.textContent = 'El RUT ingresado no es válido. Verifique los dígitos y el guión.';
                 }
             }
         });

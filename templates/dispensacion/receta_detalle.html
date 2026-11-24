@@ -1,112 +1,273 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Receta {{ receta.numero_receta }}{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-    <div>
-        <h4 class="fw-bolder mb-0"><i class="bi bi-file-earmark-medical-fill text-danger me-2"></i>Receta Médica {{ receta.numero_receta }}</h4>
-        <p class="text-muted small mb-0">Prescripción asistencial vinculada a {{ receta.paciente.nombre_completo }} ({{ receta.paciente.rut }})</p>
-    </div>
-    <div class="d-flex flex-wrap gap-2">
-        {% if receta.estado == 'pendiente' or receta.estado == 'parcial' %}
-            <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalAgregarMedReceta">
-                <i class="bi bi-plus-circle me-1"></i>+ Agregar Medicamento a Receta
-            </button>
-            <form method="post" class="m-0" onsubmit="return confirm('¿Anular esta receta médica?');">
-                {% csrf_token %}
-                <input type="hidden" name="accion" value="anular_receta">
-                <button type="submit" class="btn btn-outline-danger btn-sm">
+<div class="no-print">
+    <!-- Cabecera Operativa -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-file-earmark-medical-fill text-danger me-2"></i>Receta Médica {{ receta.numero_receta }}</h4>
+            <p class="text-muted small mb-0">Prescripción asistencial vinculada a {{ receta.paciente.nombre_completo }} (<code>{{ receta.paciente.rut }}</code>)</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'dispensacion:receta_imprimir' receta.pk %}?autoprint=1" target="_blank" rel="noopener" class="btn btn-dark btn-sm">
+                <i class="bi bi-printer me-1"></i>Imprimir Receta
+            </a>
+
+            {% if receta.estado == 'pendiente' or receta.estado == 'parcial' %}
+                {% if user.rol == 'admin' %}
+                <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalAgregarMedReceta">
+                    <i class="bi bi-plus-circle me-1"></i>+ Agregar Medicamento a Receta
+                </button>
+                {% endif %}
+
+                {% if user.rol == 'admin' or user.rol == 'quimico' %}
+                <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalAnularReceta">
                     <i class="bi bi-slash-circle me-1"></i>Anular Receta
                 </button>
-            </form>
-            {% if receta.esta_vigente %}
-            <a href="{% url 'dispensacion:dispensar_receta' receta.pk %}" class="btn btn-dispensar">
-                <i class="bi bi-hand-index-thumb-fill me-1"></i>Dispensar esta Receta ($0 Copago)
-            </a>
-            {% endif %}
-        {% elif receta.estado == 'anulada' %}
-            <form method="post" class="m-0">
-                {% csrf_token %}
-                <input type="hidden" name="accion" value="reactivar_receta">
-                <button type="submit" class="btn btn-warning text-dark btn-sm fw-bold">
-                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar Receta
-                </button>
-            </form>
-        {% endif %}
-    </div>
-</div>
+                {% endif %}
 
-<div class="row g-4">
-    <div class="col-md-4">
-        <div class="card p-4">
-            <h6 class="fw-bolder text-uppercase small text-danger border-bottom pb-2 mb-3">Antecedentes de la Prescripción</h6>
-            <p class="mb-2"><strong>Paciente:</strong> <a href="{% url 'core:paciente_detalle' receta.paciente.pk %}">{{ receta.paciente.nombre_completo }}</a></p>
-            <p class="mb-2"><strong>RUT:</strong> <code>{{ receta.paciente.rut }}</code></p>
-            <p class="mb-2"><strong>Médico Emisor:</strong> {{ receta.medico }}</p>
-            <p class="mb-2"><strong>Tipo Receta:</strong> {{ receta.get_tipo_display }}</p>
-            <p class="mb-2"><strong>Diagnóstico Clínico:</strong> {{ receta.diagnostico }}</p>
-            <p class="mb-2"><strong>Fecha Emisión:</strong> {{ receta.fecha_emision|date:"d/m/Y" }}</p>
-            <p class="mb-2"><strong>Vencimiento Legal:</strong> {{ receta.fecha_vencimiento|date:"d/m/Y" }}</p>
-            <p class="mb-2"><strong>Estado:</strong> <span class="badge bg-{% if receta.estado == 'pendiente' %}warning text-dark{% elif receta.estado == 'total' %}success{% elif receta.estado == 'anulada' %}danger{% else %}secondary{% endif %}">{{ receta.get_estado_display }}</span></p>
-            <p class="mb-0"><strong>Vigencia Legal:</strong> {% if receta.esta_vigente %}<span class="text-success fw-bold">✅ Vigente</span>{% else %}<span class="text-danger fw-bold">❌ No Vigente</span>{% endif %}</p>
+                {% if receta.esta_vigente %}
+                    {% if receta.es_controlada and not receta.autorizada_qf %}
+                        {% if user.rol == 'quimico' %}
+                        <button type="button" class="btn btn-danger btn-sm fw-bold" data-bs-toggle="modal" data-bs-target="#modalAutorizarDetalleQF">
+                            <i class="bi bi-shield-check me-1"></i>Autorizar / Firmar Q.F.
+                        </button>
+                        <a href="{% url 'dispensacion:dispensar_receta' receta.pk %}" class="btn btn-dispensar">
+                            <i class="bi bi-hand-index-thumb-fill me-1"></i>Dispensar esta Receta ($0 Copago)
+                        </a>
+                        {% else %}
+                        <span class="badge bg-warning text-dark border border-danger d-inline-flex align-items-center px-3 py-2">
+                            <i class="bi bi-lock-fill me-1"></i>Requiere Autorización Q.F. antes de dispensar
+                        </span>
+                        {% endif %}
+                    {% elif user.rol == 'quimico' or user.rol == 'tecnico' %}
+                    <a href="{% url 'dispensacion:dispensar_receta' receta.pk %}" class="btn btn-dispensar">
+                        <i class="bi bi-hand-index-thumb-fill me-1"></i>Dispensar esta Receta ($0 Copago)
+                    </a>
+                    {% endif %}
+                {% else %}
+                <span class="badge bg-danger d-inline-flex align-items-center px-3 py-2">
+                    <i class="bi bi-x-octagon-fill me-1"></i>Receta Vencida (Bloqueada)
+                </span>
+                {% endif %}
+            {% elif receta.estado == 'anulada' and user.rol != 'tecnico' %}
+                {% if user.rol == 'admin' or user.rol == 'quimico' %}
+                <form method="post" class="m-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="accion" value="reactivar_receta">
+                    <button type="submit" class="btn btn-warning text-dark btn-sm fw-bold">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar Receta
+                    </button>
+                </form>
+                {% endif %}
+            {% endif %}
         </div>
     </div>
 
-    <div class="col-md-8">
-        {% for item in detalles_con_lotes %}
-        <div class="card mb-3">
-            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <div>
-                    <strong>{{ item.detalle.medicamento.nombre_generico }} {{ item.detalle.medicamento.concentracion }}</strong>
-                    <span class="badge bg-secondary ms-1">{{ item.detalle.medicamento.forma_farmaceutica }}</span>
+    <div class="row g-4">
+        <!-- Columna Izquierda: Antecedentes de la Prescripción -->
+        <div class="col-md-4">
+            <div class="card p-4">
+                <h6 class="fw-bolder text-uppercase small text-danger border-bottom pb-2 mb-3">Antecedentes de la Prescripción</h6>
+                <p class="mb-2"><strong>Paciente:</strong> <a href="{% url 'core:paciente_detalle' receta.paciente.pk %}" class="fw-semibold">{{ receta.paciente.nombre_completo }}</a></p>
+                <p class="mb-2"><strong>RUT:</strong> <code>{{ receta.paciente.rut }}</code></p>
+                {% if edad_paciente != None %}
+                <p class="mb-2"><strong>Edad:</strong> {{ edad_paciente }} años</p>
+                {% endif %}
+
+                <!-- Previsión / Programas GES / Cobertura Gratuita -->
+                <div class="mb-2">
+                    <strong>Previsión / Programa:</strong>
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        <span class="badge bg-primary">{{ receta.paciente.get_prevision_display }}</span>
+                        {% if receta.paciente.cronico %}
+                        <span class="badge bg-warning text-dark">Crónico PSCV</span>
+                        {% endif %}
+                        {% for ig in inscripciones_ges %}
+                        <span class="badge bg-info text-dark" title="{{ ig.patologia.nombre }}">GES {{ ig.patologia.codigo }}: {{ ig.patologia.nombre|truncatechars:24 }}</span>
+                        {% endfor %}
+                        <span class="badge bg-success">$0 Copago</span>
+                    </div>
                 </div>
-                <div class="d-flex align-items-center gap-2">
-                    <span class="small">Prescrito: <strong>{{ item.detalle.cantidad_prescrita }}</strong> | Dispensado: <strong>{{ item.detalle.cantidad_dispensada }}</strong> | Pendiente: <strong class="text-danger">{{ item.detalle.cantidad_pendiente }}</strong></span>
-                    {% if item.detalle.cantidad_dispensada == 0 and receta.estado == 'pendiente' %}
-                    <form method="post" class="m-0">
-                        {% csrf_token %}
-                        <input type="hidden" name="accion" value="eliminar_detalle_receta">
-                        <input type="hidden" name="detalle_id" value="{{ item.detalle.pk }}">
-                        <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Quitar de la receta">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </form>
+
+                {% if tercero_conocido %}
+                <div class="p-2 rounded bg-light border mb-2 small">
+                    <div class="fw-bold text-dark"><i class="bi bi-person-badge me-1 text-danger"></i>Tercero Autorizado</div>
+                    <div>{{ tercero_conocido.nombre_completo }} (<code>{{ tercero_conocido.rut }}</code>)</div>
+                    <div class="text-muted">{{ tercero_conocido.parentesco }} · Tel: {{ tercero_conocido.telefono }}</div>
+                </div>
+                {% endif %}
+
+                <p class="mb-2"><strong>Médico Emisor:</strong> {{ receta.medico }}</p>
+                <p class="mb-2">
+                    <strong>Tipo Receta:</strong> {{ receta.get_tipo_display }}
+                    {% if receta.es_controlada %}<span class="badge bg-danger ms-1">Controlada</span>{% endif %}
+                </p>
+                <p class="mb-2"><strong>Diagnóstico Clínico:</strong> {{ receta.diagnostico }}</p>
+                <p class="mb-2"><strong>Fecha Emisión:</strong> {{ receta.fecha_emision|date:"d/m/Y" }}</p>
+                <p class="mb-2"><strong>Vencimiento Legal:</strong> {{ receta.fecha_vencimiento|date:"d/m/Y" }}</p>
+                <p class="mb-2">
+                    <strong>Estado:</strong>
+                    {% if receta.esta_vencida %}
+                    <span class="badge bg-danger">Vencida</span>
+                    {% else %}
+                    <span class="badge bg-{% if receta.estado == 'pendiente' %}warning text-dark{% elif receta.estado == 'total' %}success{% elif receta.estado == 'anulada' %}danger{% else %}secondary{% endif %}">{{ receta.get_estado_display }}</span>
+                    {% endif %}
+                </p>
+                <p class="mb-0">
+                    <strong>Vigencia Legal:</strong>
+                    {% if receta.esta_vigente %}
+                    <span class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i>Vigente</span>
+                    {% else %}
+                    <span class="text-danger fw-bold"><i class="bi bi-x-circle-fill me-1"></i>No Vigente</span>
+                    {% endif %}
+                </p>
+
+                {% if receta.es_controlada and receta.autorizada_qf %}
+                <div class="alert alert-success py-2 px-3 mt-3 mb-0 small border-success">
+                    <i class="bi bi-patch-check-fill me-1"></i>
+                    <strong>Autorizada por Q.F.</strong> {{ receta.qf_autorizador.get_full_name|default:"Químico Farmacéutico" }} — {{ receta.fecha_autorizacion_qf|date:"d/m/Y H:i" }}
+                </div>
+                {% endif %}
+
+                {% if receta.observaciones %}
+                <div class="mt-3 pt-2 border-top small text-muted">
+                    <strong>Observaciones:</strong><br>
+                    <span style="white-space: pre-line;">{{ receta.observaciones }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Columna Derecha: Medicamentos/FEFO + Historial de Entregas -->
+        <div class="col-md-8">
+            {% for item in detalles_con_lotes %}
+            <div class="card mb-3">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <strong>{{ item.detalle.medicamento.nombre_generico }} {{ item.detalle.medicamento.concentracion }}</strong>
+                        <span class="badge bg-secondary ms-1">{{ item.detalle.medicamento.forma_farmaceutica }}</span>
+                        {% if item.detalle.medicamento.es_controlado %}
+                        <span class="badge bg-danger ms-1">Controlado</span>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="small">Prescrito: <strong>{{ item.detalle.cantidad_prescrita }}</strong> | Dispensado: <strong>{{ item.detalle.cantidad_dispensada }}</strong> | Pendiente: <strong class="text-danger">{{ item.detalle.cantidad_pendiente }}</strong></span>
+                        {% if user.rol == 'admin' and item.detalle.cantidad_dispensada == 0 and receta.estado == 'pendiente' %}
+                        <form method="post" class="m-0" onsubmit="return confirm('¿Quitar {{ item.detalle.medicamento.nombre_generico }} de esta receta?');">
+                            {% csrf_token %}
+                            <input type="hidden" name="accion" value="eliminar_detalle_receta">
+                            <input type="hidden" name="detalle_id" value="{{ item.detalle.pk }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Quitar de la receta">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="small mb-2">
+                        <strong>Posología:</strong> <span class="text-dark fw-semibold">{{ item.via_administracion }}</span> · {{ item.detalle.posologia }}
+                        | <strong>Ciclo:</strong> {{ item.detalle.dias_tratamiento }} días
+                    </p>
+                    {% if item.detalle.cantidad_pendiente > 0 and receta.estado != 'total' %}
+                    <h6 class="small fw-bold text-muted text-uppercase mb-2">Lotes Disponibles Ordenados por Motor FEFO:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-cesfam mb-0">
+                            <thead><tr><th>Lote</th><th>Ubicación</th><th>Stock</th><th>Vencimiento</th><th>Días Rest.</th><th>Prioridad FEFO</th></tr></thead>
+                            <tbody>
+                            {% for l in item.lotes_fefo %}
+                            <tr class="{% if forloop.first %}table-success{% endif %}">
+                                <td><code>{{ l.numero_lote }}</code></td>
+                                <td>{{ l.ubicacion.nombre }}</td>
+                                <td class="fw-bold">{{ l.cantidad_actual }}</td>
+                                <td>{{ l.fecha_vencimiento|date:"d/m/Y" }}</td>
+                                <td>{{ l.dias_para_vencer }}d</td>
+                                <td>{% if forloop.first %}<span class="fefo-indicator fefo-first">✓ Preseleccionado FEFO</span>{% else %}<span class="small text-muted">Alternativo</span>{% endif %}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-danger small py-2"><i class="bi bi-exclamation-triangle me-1"></i>Sin lotes vigentes disponibles. Emita una Orden a CENABAST.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="small text-success fw-semibold mb-0">
+                        <i class="bi bi-check-circle-fill me-1"></i>Medicamento entregado en su totalidad (Pendiente: 0). Ver lote despachado en el Historial de Entregas.
+                    </div>
                     {% endif %}
                 </div>
             </div>
-            <div class="card-body">
-                <p class="small mb-2"><strong>Posología:</strong> {{ item.detalle.posologia }} | <strong>Ciclo de Tratamiento:</strong> {{ item.detalle.dias_tratamiento }} días</p>
-                <h6 class="small fw-bold text-muted text-uppercase mb-2">Lotes Disponibles Ordenados por Motor FEFO:</h6>
-                <div class="table-responsive">
-                    <table class="table table-sm table-cesfam mb-0">
-                        <thead><tr><th>Lote</th><th>Ubicación</th><th>Stock</th><th>Vencimiento</th><th>Días Rest.</th><th>Prioridad FEFO</th></tr></thead>
-                        <tbody>
-                        {% for l in item.lotes_fefo %}
-                        <tr class="{% if forloop.first %}table-success{% endif %}">
-                            <td><code>{{ l.numero_lote }}</code></td>
-                            <td>{{ l.ubicacion.nombre }}</td>
-                            <td class="fw-bold">{{ l.cantidad_actual }}</td>
-                            <td>{{ l.fecha_vencimiento|date:"d/m/Y" }}</td>
-                            <td>{{ l.dias_para_vencer }}d</td>
-                            <td>{% if forloop.first %}<span class="fefo-indicator fefo-first">✓ Preseleccionado FEFO</span>{% else %}<span class="small text-muted">Alternativo</span>{% endif %}</td>
-                        </tr>
-                        {% empty %}
-                        <tr><td colspan="6" class="text-danger small py-2"><i class="bi bi-exclamation-triangle me-1"></i>Sin lotes vigentes disponibles. Emita una Orden a CENABAST.</td></tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
+            {% empty %}
+            <div class="card p-4 text-center text-muted mb-3">
+                La receta no tiene medicamentos asociados.
+            </div>
+            {% endfor %}
+
+            <!-- Historial de Entregas de esta Receta -->
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-clock-history text-danger me-2"></i>Historial de Entregas de esta Receta</span>
+                    <span class="badge bg-dark">{{ entregas_receta|length }} entrega(s)</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-cesfam mb-0 align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Fecha / Hora</th>
+                                    <th>Medicamento</th>
+                                    <th>Cantidad</th>
+                                    <th>Lote FEFO</th>
+                                    <th>Quién Retiró</th>
+                                    <th>Operador</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for ent in entregas_receta %}
+                            <tr>
+                                <td class="small text-nowrap">{{ ent.dispensacion.fecha|date:"d/m/Y H:i" }}</td>
+                                <td class="small"><strong>{{ ent.detalle_receta.medicamento.nombre_generico }}</strong> {{ ent.detalle_receta.medicamento.concentracion }}</td>
+                                <td class="fw-bold small">{{ ent.cantidad }} unid.</td>
+                                <td><code>{{ ent.lote.numero_lote }}</code></td>
+                                <td class="small">
+                                    {% if ent.dispensacion.retiro_tercero and ent.dispensacion.tercero_autorizado %}
+                                    <strong>{{ ent.dispensacion.tercero_autorizado.nombre_completo }}</strong><br>
+                                    <span class="text-muted"><code>{{ ent.dispensacion.tercero_autorizado.rut }}</code> · {{ ent.dispensacion.tercero_autorizado.parentesco }}</span>
+                                    {% else %}
+                                    <strong>{{ receta.paciente.nombre_completo }}</strong><br>
+                                    <span class="text-muted"><code>{{ receta.paciente.rut }}</code> · Paciente titular</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small">{{ ent.dispensacion.usuario_dispensador.get_full_name }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4 small">
+                                    Aún no se registran dispensaciones para esta receta.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
-        {% empty %}
-        <div class="card p-4 text-center text-muted">
-            La receta no tiene medicamentos asociados. Haz clic en <strong>"+ Agregar Medicamento a Receta"</strong>.
-        </div>
-        {% endfor %}
     </div>
 </div>
 
-<!-- Modal Agregar Medicamento a la Receta -->
-<div class="modal fade" id="modalAgregarMedReceta" tabindex="-1" aria-hidden="true">
+<!-- =========================================================================
+     DOCUMENTO FORMAL DE IMPRESIÓN (@media print - oculto en pantalla normal)
+     ========================================================================= -->
+<section class="print-only p-2">
+    {% include 'dispensacion/_documento_receta_formal.html' %}
+</section>
+
+{% if user.rol == 'admin' and receta.estado != 'total' and receta.estado != 'vencida' %}
+<!-- Modal Agregar Medicamento a la Receta (Exclusivo Administrador) -->
+<div class="modal fade no-print" id="modalAgregarMedReceta" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
@@ -148,4 +309,63 @@
         </div>
     </div>
 </div>
+{% endif %}
+
+{% if user.rol == 'admin' or user.rol == 'quimico' %}
+<!-- Modal Anular Receta con Motivo Obligatorio (Solo Q.F. y Administrador) -->
+<div class="modal fade no-print" id="modalAnularReceta" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-slash-circle me-2"></i>Anular Receta {{ receta.numero_receta }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="anular_receta">
+                <div class="modal-body">
+                    <div class="alert alert-warning small py-2">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                        La anulación bloqueará cualquier dispensación posterior y quedará registrada en la bitácora de auditoría con tu usuario y rol.
+                    </div>
+                    <label class="form-label fw-bold small">Motivo Obligatorio de Anulación <span class="text-danger">*</span></label>
+                    <textarea name="motivo_anulacion" class="form-control" rows="3" placeholder="Ej: Error de prescripción médica en dosis / receta duplicada por cambio de esquema terapéutico" required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger fw-bold"><i class="bi bi-check-lg me-1"></i>Confirmar Anulación</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if user.rol == 'quimico' and receta.es_controlada and not receta.autorizada_qf and receta.esta_vigente %}
+<div class="modal fade no-print" id="modalAutorizarDetalleQF" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-shield-lock-fill me-2"></i>Autorización Q.F. — Receta {{ receta.numero_receta }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{% url 'dispensacion:autorizar_receta_qf' receta.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{% url 'dispensacion:receta_detalle' receta.pk %}">
+                <div class="modal-body">
+                    <p class="small mb-3">
+                        Confirma la revisión y firma técnica de esta receta controlada para habilitar su entrega en ventanilla.
+                    </p>
+                    <label class="form-label fw-bold small">PIN del Químico Farmacéutico</label>
+                    <input type="password" name="pin_qf" class="form-control" placeholder="PIN Q.F. (Simulación: 123456)" required autofocus>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger fw-bold"><i class="bi bi-check-circle me-1"></i>Autorizar y Firmar Q.F.</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

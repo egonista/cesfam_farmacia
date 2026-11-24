@@ -3,7 +3,9 @@ Registro de modelos Core en el admin de Django.
 """
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema
+from .models import (
+    Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
+)
 
 
 @admin.register(Usuario)
@@ -45,3 +47,11 @@ class AlertaSistemaAdmin(admin.ModelAdmin):
     list_display = ('timestamp', 'nivel', 'tipo', 'medicamento', 'lote', 'dias_restantes', 'leida')
     list_filter = ('nivel', 'tipo', 'leida')
     search_fields = ('medicamento', 'lote')
+
+
+@admin.register(EscenarioSimulacion)
+class EscenarioSimulacionAdmin(admin.ModelAdmin):
+    list_display = ('nombre', 'modalidad', 'activo', 'mostrar_consigna_a_estudiantes', 'creado_por', 'fecha_creacion')
+    list_filter = ('activo', 'modalidad', 'mostrar_consigna_a_estudiantes')
+    search_fields = ('nombre', 'descripcion', 'consignas_personalizadas')
+    filter_horizontal = ('pacientes', 'recetas')

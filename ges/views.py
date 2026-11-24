@@ -7,16 +7,29 @@ from django.db.models import Q, Count, Sum
 from django.shortcuts import render, redirect, get_object_or_404
 
 from .models import PatologiaGES, CanastaGES, InscripcionGES, CuotaGES
-from core.models import Paciente
+from core.models import Paciente, EscenarioSimulacion
+from core.decorators import rol_requerido
+from core.utils import obtener_filtro_escenario
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El Personal Clínico no está autorizado para consultar pacientes, garantías GES/AUGE ni cuotas de retiro.'
+)
 def inscripcion_list(request):
     """Lista de inscripciones GES con búsqueda."""
-    query = request.GET.get('q', '')
+    query = request.GET.get('q', '').strip()
+    escenario_activo, filtrar_por_escenario, vista_escenario = obtener_filtro_escenario(request)
     inscripciones = InscripcionGES.objects.filter(
         activa=True
     ).select_related('paciente', 'patologia')
+
+    escenario_sin_pacientes = False
+    if filtrar_por_escenario and escenario_activo is not None:
+        inscripciones = inscripciones.filter(
+            paciente_id__in=escenario_activo.pacientes.values_list('id', flat=True)
+        )
+        escenario_sin_pacientes = not escenario_activo.pacientes.filter(activo=True).exists()
 
     if query:
         inscripciones = inscripciones.filter(
@@ -28,10 +41,16 @@ def inscripcion_list(request):
     return render(request, 'ges/inscripcion_list.html', {
         'inscripciones': inscripciones,
         'query': query,
+        'vista_escenario': vista_escenario,
+        'filtrar_por_escenario': filtrar_por_escenario,
+        'escenario_sin_pacientes': escenario_sin_pacientes,
     })
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El Personal Clínico no está autorizado para consultar detalle de inscripciones o cuotas GES.'
+)
 def inscripcion_detalle(request, pk):
     """Detalle de inscripción GES con saldo de cuotas."""
     inscripcion = get_object_or_404(
@@ -60,7 +79,10 @@ def inscripcion_detalle(request, pk):
     })
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El Personal Clínico no está autorizado para verificar cobertura o cuotas GES de pacientes.'
+)
 def verificar_ges(request, paciente_pk):
     """Verificación automática de patología GES activa para un paciente."""
     paciente = get_object_or_404(Paciente, pk=paciente_pk)

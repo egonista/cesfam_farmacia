@@ -2,33 +2,80 @@
 {% block title %}{{ carro.nombre }} - Detalle{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
         <div>
-            <div class="d-flex align-items-center gap-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
                 <h4 class="mb-0 fw-bold">{{ carro.nombre }}</h4>
                 <span class="badge {% if carro.tipo == 'paro' %}bg-danger{% else %}bg-primary{% endif %}">
                     {{ carro.get_tipo_display }}
                 </span>
-                <span class="badge {% if carro.estado == 'completo' %}bg-success{% elif carro.estado == 'incompleto' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
-                    {{ carro.get_estado_display }}
+                {% if carro.total_faltantes > 0 %}
+                <span class="badge bg-warning text-dark border border-danger fw-bold">
+                    ⚠ Requiere Reposición ({{ carro.total_faltantes }} faltantes)
                 </span>
+                {% elif carro.estado_efectivo == 'completo' %}
+                <span class="badge bg-success">
+                    <i class="bi bi-shield-lock-fill me-1"></i>Sellado · Completo - Operativo
+                </span>
+                {% else %}
+                <span class="badge {% if carro.estado_efectivo == 'incompleto' %}bg-danger{% elif carro.estado_efectivo == 'sin_dotacion' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+                    {{ carro.estado_efectivo_display }}
+                </span>
+                {% endif %}
+                {% if carro.precinto_roto %}
+                <span class="badge bg-danger">
+                    <i class="bi bi-unlock-fill me-1"></i>Precinto Roto — Pendiente Resellado
+                </span>
+                {% endif %}
+                {% if tiene_lote_alerta_60 %}
+                <span class="badge bg-warning text-dark"><i class="bi bi-clock-history me-1"></i>Lote por vencer (&le; 60d)</span>
+                {% endif %}
             </div>
             <p class="text-muted small mb-0 mt-1">
-                <i class="bi bi-geo-alt-fill text-danger me-1"></i>{{ carro.ubicacion_fisica }} | 
-                Precinto: <strong>{{ carro.numero_precinto|default:"Sin precinto" }}</strong> 
+                <i class="bi bi-geo-alt-fill text-danger me-1"></i>{{ carro.ubicacion_fisica }} |
+                {% if carro.precinto_roto %}
+                Precinto anterior: {% if carro.numero_precinto %}<del class="text-muted">{{ carro.numero_precinto }}</del>{% else %}<span class="text-muted">Sin precinto</span>{% endif %}
+                {% else %}
+                Precinto: <strong class="text-dark"><i class="bi bi-lock-fill text-success me-1"></i>{{ carro.numero_precinto|default:"Sin precinto" }}</strong>
+                {% endif %}
                 {% if carro.fecha_ultimo_precinto %}({{ carro.fecha_ultimo_precinto|date:"d/m/Y H:i" }}){% endif %}
             </p>
         </div>
-        <div class="d-flex gap-2">
-            <!-- Botón Consumo (Personal Clínico / Enfermería) -->
-            <button type="button" class="btn btn-warning text-dark" data-bs-toggle="modal" data-bs-target="#modalConsumo">
+        <div class="d-flex flex-wrap gap-2">
+            {% if user.rol == 'admin' or user.rol == 'quimico' %}
+            <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#modalAgregarItemCarro">
+                <i class="bi bi-plus-circle me-1"></i>+ Agregar Ítem a Plantilla
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#modalEditarCarro">
+                <i class="bi bi-pencil-square me-1"></i>Editar Carro
+            </button>
+            {% endif %}
+            {% if user.rol == 'admin' %}
+            <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modalEliminarCarro">
+                <i class="bi bi-trash3 me-1"></i>{% if tiene_historial %}Desactivar{% else %}Eliminar{% endif %}
+            </button>
+            {% endif %}
+            <!-- Botón Consumo (Exclusivo Personal Clínico y supervisión Q.F.; bloqueado para Admin y Técnico) -->
+            {% if user.rol == 'clinico' or user.rol == 'quimico' %}
+            <button type="button" class="btn btn-warning text-dark fw-bold" data-bs-toggle="modal" data-bs-target="#modalConsumo">
                 <i class="bi bi-lightning-charge-fill me-1"></i>Registrar Consumo Emergencia
             </button>
-            <!-- Botón Reposición (Farmacia / FEFO) -->
-            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalReposicion">
-                <i class="bi bi-arrow-repeat me-1"></i>Reponer desde Farmacia (FEFO)
-            </button>
-            <a href="{% url 'carros_clinicos:carro_list' %}" class="btn btn-outline-secondary">
+            {% endif %}
+            <!-- Botón Reposición (Exclusivo Técnico en Farmacia y Químico Farmacéutico) -->
+            {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
+                {% if items_faltantes %}
+                <button type="button" class="btn btn-success fw-bold" data-bs-toggle="modal" data-bs-target="#modalReposicion">
+                    <i class="bi bi-arrow-repeat me-1"></i>Reponer y Sellar Carro
+                </button>
+                {% else %}
+                <span class="d-inline-block" title="Todos los ítems tienen stock completo en el carro">
+                    <button type="button" class="btn btn-outline-success fw-bold" disabled>
+                        <i class="bi bi-check2-circle me-1"></i>Carro Completo
+                    </button>
+                </span>
+                {% endif %}
+            {% endif %}
+            <a href="{% url 'carros_clinicos:carro_list' %}" class="btn btn-outline-secondary" title="Volver a Carros Clínicos">
                 <i class="bi bi-arrow-left"></i>
             </a>
         </div>
@@ -48,14 +95,19 @@
                             <th>Ubicación en Carro</th>
                             <th>Medicamento / Insumo</th>
                             <th>Presentación</th>
+                            <th class="whitespace-nowrap text-nowrap">Lote / Vencimiento</th>
                             <th>Requerido</th>
                             <th>Actual</th>
                             <th>Faltante</th>
                             <th>Estado</th>
+                            {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
+                            <th class="text-end">Acciones</th>
+                            {% endif %}
                         </tr>
                     </thead>
                     <tbody>
-                        {% for it in items %}
+                        {% for entry in items_con_lote %}
+                        {% with it=entry.item lote=entry.lote_ref dias=entry.dias_vencer %}
                         <tr class="{% if not it.esta_completo %}table-danger{% endif %}">
                             <td><code>{{ it.ubicacion_en_carro|default:"General" }}</code></td>
                             <td>
@@ -65,6 +117,21 @@
                                 {% endif %}
                             </td>
                             <td>{{ it.medicamento.forma_farmaceutica }}</td>
+                            <td class="whitespace-nowrap text-nowrap">
+                                {% if lote %}
+                                    <code class="fw-bold">{{ lote.numero_lote }}</code>
+                                    <span class="small text-muted ms-1">{{ lote.fecha_vencimiento|date:"d/m/Y" }}</span>
+                                    {% if dias <= 0 %}
+                                    <span class="badge bg-danger ms-1">Vencido</span>
+                                    {% elif dias <= 30 %}
+                                    <span class="badge bg-danger ms-1">Vence {{ dias }}d</span>
+                                    {% elif dias <= 60 %}
+                                    <span class="badge bg-warning text-dark ms-1">Vence {{ dias }}d</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="small text-muted">Sin lote asignado</span>
+                                {% endif %}
+                            </td>
                             <td><span class="badge bg-dark">{{ it.cantidad_requerida }}</span></td>
                             <td class="fw-bold {% if it.esta_completo %}text-success{% else %}text-danger{% endif %}">
                                 {{ it.cantidad_actual }}
@@ -76,17 +143,56 @@
                                 <span class="text-muted">0</span>
                                 {% endif %}
                             </td>
-                            <td>
+                            <td class="whitespace-nowrap text-nowrap">
                                 {% if it.esta_completo %}
                                 <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completo</span>
                                 {% else %}
                                 <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>Incompleto</span>
                                 {% endif %}
                             </td>
+                            {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
+                            <td class="text-end whitespace-nowrap text-nowrap">
+                                <div class="d-inline-flex align-items-center gap-1">
+                                    {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
+                                        {% if it.faltante > 0 %}
+                                        <button type="button" class="btn btn-sm btn-success fw-semibold"
+                                                onclick="abrirReposicionParaItem('{{ it.pk }}')">
+                                            <i class="bi bi-arrow-repeat me-1"></i>Reponer
+                                        </button>
+                                        {% endif %}
+                                    {% endif %}
+                                    {% if user.rol == 'admin' or user.rol == 'quimico' %}
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-dark btn-editar-item-carro"
+                                            title="Editar cantidad requerida / ubicación"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#modalEditarItemPlantilla"
+                                            data-url="{% url 'carros_clinicos:item_plantilla_editar' carro.pk it.pk %}"
+                                            data-med="{{ it.medicamento.nombre_generico }} {{ it.medicamento.concentracion }}"
+                                            data-req="{{ it.cantidad_requerida }}"
+                                            data-ubic="{{ it.ubicacion_en_carro }}">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-danger btn-eliminar-item-carro"
+                                            title="Quitar ítem de la plantilla"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#modalEliminarItemPlantilla"
+                                            data-url="{% url 'carros_clinicos:item_plantilla_eliminar' carro.pk it.pk %}"
+                                            data-med="{{ it.medicamento.nombre_generico }} {{ it.medicamento.concentracion }}">
+                                        <i class="bi bi-trash3"></i>
+                                    </button>
+                                    {% elif it.faltante == 0 %}
+                                    <span class="text-muted small">—</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            {% endif %}
                         </tr>
+                        {% endwith %}
                         {% empty %}
                         <tr>
-                            <td colspan="7" class="text-center py-4 text-muted">
+                            <td colspan="{% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}9{% else %}8{% endif %}" class="text-center py-4 text-muted">
                                 No hay ítems configurados en la plantilla canónica de este carro.
                             </td>
                         </tr>
@@ -97,7 +203,7 @@
         </div>
     </div>
 
-    <!-- Pestañas de Historial -->
+    <!-- Historial de Consumos y Reposiciones -->
     <div class="row g-4">
         <div class="col-md-6">
             <div class="card shadow-sm border-0 h-100">
@@ -214,7 +320,8 @@
     </div>
 </div>
 
-<!-- Modal Reposición (Farmacia - FEFO) -->
+<!-- Modal Reposición (Farmacia - FEFO, solo ítems con faltante) -->
+{% if items_faltantes %}
 <div class="modal fade" id="modalReposicion" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -222,44 +329,351 @@
                 <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Reposición de Carro Clínico (Lógica FEFO)</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form method="post" action="{% url 'carros_clinicos:reponer_carro' carro.pk %}">
+            <form method="post" action="{% url 'carros_clinicos:reponer_carro' carro.pk %}" id="formReponerCarro">
                 {% csrf_token %}
                 <div class="modal-body">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label">Ítem a Reponer</label>
-                            <select name="item" class="form-select" required>
-                                {% for it in items %}
-                                <option value="{{ it.pk }}">{{ it.medicamento.nombre_generico }} (Faltan: {{ it.faltante }})</option>
+                            <label class="form-label fw-bold">Ítem a Reponer</label>
+                            <select name="item" id="id_repo_item" class="form-select" required>
+                                {% for it in items_faltantes %}
+                                <option value="{{ it.pk }}"
+                                        data-medicamento-id="{{ it.medicamento.pk }}"
+                                        data-faltante="{{ it.faltante }}">
+                                    {{ it.medicamento.nombre_generico }} {{ it.medicamento.concentracion }} (Faltan: {{ it.faltante }})
+                                </option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Lote en Farmacia (Ordenado FEFO)</label>
-                            <select name="lote" class="form-select" required>
-                                {% for it in items %}
-                                    {% for l in it.medicamento.lotes_fefo %}
-                                    <option value="{{ l.pk }}">{{ it.medicamento.nombre_generico }} | Lote {{ l.numero_lote }} (Stock: {{ l.cantidad_actual }}, Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }})</option>
-                                    {% endfor %}
+                            <label class="form-label fw-bold">Lote en Farmacia (Ordenado FEFO)</label>
+                            <select name="lote" id="id_repo_lote" class="form-select" required>
+                                {% for entry in items_con_lote %}
+                                    {% if entry.item.faltante > 0 %}
+                                        {% for l in entry.lotes_fefo %}
+                                        <option value="{{ l.pk }}"
+                                                data-medicamento-id="{{ entry.item.medicamento.pk }}"
+                                                data-stock="{{ l.cantidad_actual }}">
+                                            {{ entry.item.medicamento.nombre_generico }} | Lote {{ l.numero_lote }} (Stock: {{ l.cantidad_actual }}, Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }}){% if forloop.first %} ✓ 1° FEFO{% endif %}
+                                        </option>
+                                        {% endfor %}
+                                    {% endif %}
                                 {% endfor %}
+                                <option value="" disabled hidden data-sin-lote="true">Sin lotes vigentes en Farmacia para este medicamento</option>
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Cantidad a Reponer</label>
-                            <input type="number" name="cantidad" class="form-control" min="1" required>
+                            <label class="form-label fw-bold">Cantidad a Reponer</label>
+                            <input type="number" name="cantidad" id="id_repo_cantidad" class="form-control" min="1" required>
+                            <div class="form-text" id="ayudaRepoCantidad"></div>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Número de Nuevo Precinto de Seguridad</label>
+                            <label class="form-label fw-bold">Número de Nuevo Precinto de Seguridad</label>
                             <input type="text" name="nuevo_precinto" class="form-control" placeholder="Ej: PREC-2026-9042" required>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success"><i class="bi bi-shield-lock-fill me-1"></i>Confirmar Reposición y Precintar</button>
+                    <button type="submit" class="btn btn-success" id="btnConfirmarReposicion">
+                        <i class="bi bi-shield-lock-fill me-1"></i>Confirmar Reposición y Precintar
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+{% endif %}
+
+<!-- Modal + Agregar Ítem a Plantilla del Carro -->
+{% if user.rol == 'admin' or user.rol == 'quimico' %}
+<div class="modal fade" id="modalAgregarItemCarro" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Agregar Ítem a Plantilla del Carro</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="agregar_item_plantilla">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ubicación en Carro / Cajón</label>
+                        <input type="text" name="ubicacion_en_carro" class="form-control" placeholder="Ej: Cajón 1 - Ampollas de Urgencia" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Medicamento o Insumo del Arsenal</label>
+                        <select name="medicamento_id" class="form-select" required>
+                            {% for m in todos_medicamentos %}
+                            <option value="{{ m.pk }}">{{ m.nombre_generico }} {{ m.concentracion }} ({{ m.forma_farmaceutica }})</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Si hay stock vigente en farmacia, se asignará automáticamente el primer lote FEFO disponible.</div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label fw-bold">Cantidad Requerida</label>
+                            <input type="number" name="cantidad_requerida" class="form-control" value="10" min="1" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-bold">Cantidad Actual Inicial</label>
+                            <input type="number" name="cantidad_actual" class="form-control" value="10" min="0" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-check-lg me-1"></i>Guardar en Plantilla</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Ítem de Plantilla -->
+<div class="modal fade" id="modalEditarItemPlantilla" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Editar Ítem de Plantilla</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="formEditarItemPlantilla" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">Medicamento / Insumo: <strong id="editItemMedNombre" class="text-dark"></strong></p>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ubicación en Carro / Cajón</label>
+                        <input type="text" name="ubicacion_en_carro" id="editItemUbicacion" class="form-control" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-bold">Cantidad Requerida según Protocolo</label>
+                        <input type="number" name="cantidad_requerida" id="editItemCantidadReq" class="form-control" min="1" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam btn-sm fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Quitar Ítem de Plantilla -->
+<div class="modal fade" id="modalEliminarItemPlantilla" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-trash3 me-2"></i>Quitar Ítem de la Plantilla</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="formEliminarItemPlantilla" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="small mb-0">
+                        ¿Confirmas quitar <strong id="delItemMedNombre"></strong> de la plantilla canónica de <strong>{{ carro.nombre }}</strong>?
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger btn-sm fw-bold"><i class="bi bi-trash3 me-1"></i>Quitar Ítem</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Datos Básicos del Carro -->
+<div class="modal fade" id="modalEditarCarro" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Editar Datos del Carro Clínico</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{% url 'carros_clinicos:carro_editar' carro.pk %}">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Nombre Identificador del Carro</label>
+                        <input type="text" name="nombre" class="form-control" value="{{ carro.nombre }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Tipo de Carro</label>
+                        <select name="tipo" class="form-select">
+                            {% for val, label in tipos_carro %}
+                            <option value="{{ val }}" {% if carro.tipo == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-bold">Ubicación Física / Servicio</label>
+                        <input type="text" name="ubicacion_fisica" class="form-control" value="{{ carro.ubicacion_fisica }}" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam btn-sm fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal Eliminar / Desactivar Carro (Exclusivo Administrador) -->
+{% if user.rol == 'admin' %}
+<div class="modal fade" id="modalEliminarCarro" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-trash3 me-2"></i>{% if tiene_historial %}Desactivar Carro Clínico{% else %}Eliminar Carro Clínico{% endif %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{% url 'carros_clinicos:carro_eliminar' carro.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="modo" value="{% if tiene_historial %}desactivar{% else %}eliminar{% endif %}">
+                <div class="modal-body">
+                    {% if tiene_historial %}
+                    <div class="alert alert-warning py-2 small">
+                        <i class="bi bi-shield-exclamation me-1"></i>
+                        <strong>{{ carro.nombre }}</strong> posee historial clínico de consumos o reposiciones, por lo que no puede eliminarse físicamente.
+                    </div>
+                    <p class="small text-muted mb-0">
+                        Puedes <strong>desactivarlo</strong> para ocultarlo de la operación diaria conservando intacta su trazabilidad en auditoría.
+                    </p>
+                    {% else %}
+                    <p class="small mb-0">
+                        ¿Confirmas la eliminación definitiva de <strong>{{ carro.nombre }}</strong> y su plantilla de ítems? Esta acción quedará registrada en auditoría.
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger btn-sm fw-bold">
+                        <i class="bi bi-check-lg me-1"></i>{% if tiene_historial %}Confirmar Desactivación{% else %}Confirmar Eliminación{% endif %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function actualizarLotesYCantidadReposicion() {
+    const itemSelect = document.getElementById('id_repo_item');
+    const loteSelect = document.getElementById('id_repo_lote');
+    const cantInput = document.getElementById('id_repo_cantidad');
+    const ayuda = document.getElementById('ayudaRepoCantidad');
+    const btnConfirmar = document.getElementById('btnConfirmarReposicion');
+    if (!itemSelect || !loteSelect || !cantInput) return;
+
+    const optItem = itemSelect.options[itemSelect.selectedIndex];
+    const medId = optItem ? optItem.dataset.medicamentoId : '';
+    const faltante = parseInt((optItem && optItem.dataset.faltante) || '0', 10);
+
+    let primerLoteMatch = null;
+    let optSinLote = null;
+
+    for (const opt of loteSelect.options) {
+        if (opt.dataset.sinLote === 'true') {
+            optSinLote = opt;
+            opt.hidden = true;
+            opt.disabled = true;
+            continue;
+        }
+        const coincide = opt.dataset.medicamentoId === medId;
+        opt.hidden = !coincide;
+        opt.disabled = !coincide;
+        if (coincide && !primerLoteMatch) {
+            primerLoteMatch = opt;
+        }
+    }
+
+    if (primerLoteMatch) {
+        loteSelect.value = primerLoteMatch.value;
+        const stockLote = parseInt(primerLoteMatch.dataset.stock || '0', 10);
+        const maxPermitido = Math.min(faltante, stockLote > 0 ? stockLote : faltante);
+        cantInput.value = maxPermitido > 0 ? maxPermitido : '';
+        cantInput.max = faltante > 0 ? maxPermitido : '';
+        if (ayuda) {
+            ayuda.textContent = `Faltante en carro: ${faltante} unid. · Stock en lote seleccionado: ${stockLote} unid.`;
+        }
+        if (btnConfirmar) btnConfirmar.disabled = false;
+    } else {
+        if (optSinLote) {
+            optSinLote.hidden = false;
+            loteSelect.value = optSinLote.value;
+        }
+        cantInput.value = faltante > 0 ? faltante : '';
+        if (ayuda) ayuda.textContent = 'No hay lotes vigentes disponibles en Farmacia para este medicamento.';
+        if (btnConfirmar) btnConfirmar.disabled = true;
+    }
+}
+
+function abrirReposicionParaItem(itemId) {
+    const itemSelect = document.getElementById('id_repo_item');
+    const modalEl = document.getElementById('modalReposicion');
+    if (!itemSelect || !modalEl || !window.bootstrap) return;
+    itemSelect.value = String(itemId);
+    actualizarLotesYCantidadReposicion();
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const itemSelect = document.getElementById('id_repo_item');
+    const loteSelect = document.getElementById('id_repo_lote');
+    const cantInput = document.getElementById('id_repo_cantidad');
+    const ayuda = document.getElementById('ayudaRepoCantidad');
+    const modalEl = document.getElementById('modalReposicion');
+
+    if (itemSelect) {
+        itemSelect.addEventListener('change', actualizarLotesYCantidadReposicion);
+    }
+    if (loteSelect) {
+        loteSelect.addEventListener('change', function () {
+            const optItem = itemSelect && itemSelect.options[itemSelect.selectedIndex];
+            const optLote = loteSelect.options[loteSelect.selectedIndex];
+            if (!optItem || !optLote) return;
+            const faltante = parseInt(optItem.dataset.faltante || '0', 10);
+            const stockLote = parseInt(optLote.dataset.stock || '0', 10);
+            const maxPermitido = Math.min(faltante, stockLote > 0 ? stockLote : faltante);
+            cantInput.max = maxPermitido;
+            if (parseInt(cantInput.value || '0', 10) > maxPermitido) {
+                cantInput.value = maxPermitido;
+            }
+            if (ayuda) {
+                ayuda.textContent = `Faltante en carro: ${faltante} unid. · Stock en lote seleccionado: ${stockLote} unid.`;
+            }
+        });
+    }
+    if (modalEl) {
+        modalEl.addEventListener('shown.bs.modal', actualizarLotesYCantidadReposicion);
+    }
+    actualizarLotesYCantidadReposicion();
+
+    document.querySelectorAll('.btn-editar-item-carro').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('formEditarItemPlantilla').action = this.dataset.url;
+            document.getElementById('editItemMedNombre').textContent = this.dataset.med;
+            document.getElementById('editItemCantidadReq').value = this.dataset.req;
+            document.getElementById('editItemUbicacion').value = this.dataset.ubic;
+        });
+    });
+
+    document.querySelectorAll('.btn-eliminar-item-carro').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('formEliminarItemPlantilla').action = this.dataset.url;
+            document.getElementById('delItemMedNombre').textContent = this.dataset.med;
+        });
+    });
+});
+</script>
 {% endblock %}

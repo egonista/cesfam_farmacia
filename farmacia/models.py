@@ -94,14 +94,44 @@ class Medicamento(models.Model):
         ctrl = ' [CONTROLADO]' if self.es_controlado else ''
         return f'{self.nombre_generico} {self.concentracion} ({self.forma_farmaceutica}){ctrl}'
 
+    def _stock_vigente(self, tipo_ubicacion=None):
+        """Suma el stock actual de lotes activos, fuera de cuarentena y vigentes, filtrable por ubicación."""
+        qs = self.lotes.filter(activo=True, en_cuarentena=False).select_related('ubicacion')
+        if tipo_ubicacion:
+            qs = qs.filter(ubicacion__tipo=tipo_ubicacion)
+        return sum(lote.cantidad_actual for lote in qs if not lote.esta_vencido)
+
     @property
     def stock_total(self):
-        """Stock total sumando todos los lotes vigentes."""
-        return sum(
-            lote.cantidad_actual
-            for lote in self.lotes.filter(activo=True)
-            if not lote.esta_vencido
-        )
+        """Stock total sumando todos los lotes vigentes y activos (excluye cuarentena)."""
+        return self._stock_vigente()
+
+    @property
+    def stock_vitrina(self):
+        """Stock vigente ubicado en Vitrina de Dispensación."""
+        return self._stock_vigente(Ubicacion.TipoUbicacion.VITRINA)
+
+    @property
+    def stock_bodega(self):
+        """Stock vigente ubicado en Bodega Central."""
+        return self._stock_vigente(Ubicacion.TipoUbicacion.BODEGA)
+
+    @property
+    def unidad_medida_plural(self):
+        """Retorna la etiqueta plural legible de la unidad de medida para formularios."""
+        plurales = {
+            self.UnidadMedida.COMPRIMIDO: 'Comprimidos',
+            self.UnidadMedida.CAPSULA: 'Cápsulas',
+            self.UnidadMedida.AMPOLLA: 'Ampollas',
+            self.UnidadMedida.FRASCO: 'Frascos',
+            self.UnidadMedida.SOBRE: 'Sobres',
+            self.UnidadMedida.TUBO: 'Tubos',
+            self.UnidadMedida.INHALADOR: 'Inhaladores',
+            self.UnidadMedida.ML: 'ml',
+            self.UnidadMedida.MG: 'mg',
+            self.UnidadMedida.UNIDAD: 'Unidades',
+        }
+        return plurales.get(self.unidad_medida, self.get_unidad_medida_display())
 
     @property
     def en_quiebre(self):
@@ -111,10 +141,11 @@ class Medicamento(models.Model):
     def lotes_fefo(self, ubicacion=None):
         """
         Retorna los lotes ordenados por FEFO (First Expired, First Out).
-        Solo incluye lotes con stock > 0, no vencidos y activos.
+        Solo incluye lotes con stock > 0, no vencidos, no en cuarentena y activos.
         """
         qs = self.lotes.filter(
             activo=True,
+            en_cuarentena=False,
             cantidad_actual__gt=0,
             fecha_vencimiento__gt=date.today(),
         )
@@ -179,6 +210,17 @@ class Lote(models.Model):
         help_text='Solo referencial, dispensación es gratuita'
     )
     activo = models.BooleanField(default=True, verbose_name='Lote activo')
+    en_cuarentena = models.BooleanField(default=False, verbose_name='En Cuarentena / Baja por Vencimiento')
+    motivo_cuarentena = models.TextField(blank=True, verbose_name='Motivo de cuarentena / baja')
+    fecha_cuarentena = models.DateTimeField(null=True, blank=True, verbose_name='Fecha de pase a cuarentena')
+    usuario_cuarentena = models.ForeignKey(
+        'core.Usuario',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='lotes_cuarentena',
+        verbose_name='Responsable de baja / cuarentena'
+    )
     fecha_registro = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -188,7 +230,12 @@ class Lote(models.Model):
         unique_together = ['medicamento', 'numero_lote', 'ubicacion']
 
     def __str__(self):
-        estado = '⛔ VENCIDO' if self.esta_vencido else f'Vence: {self.fecha_vencimiento.strftime("%d/%m/%Y")}'
+        if self.en_cuarentena:
+            estado = 'CUARENTENA / BAJA'
+        elif self.esta_vencido:
+            estado = '⛔ VENCIDO'
+        else:
+            estado = f'Vence: {self.fecha_vencimiento.strftime("%d/%m/%Y")}'
         return f'Lote {self.numero_lote} - {self.medicamento.nombre_generico} ({estado})'
 
     @property
@@ -203,7 +250,9 @@ class Lote(models.Model):
 
     @property
     def alerta_vencimiento(self):
-        """Retorna el nivel de alerta de vencimiento."""
+        """Retorna el nivel de alerta de vencimiento o cuarentena."""
+        if self.en_cuarentena:
+            return 'cuarentena'
         dias = self.dias_para_vencer
         if dias <= 0:
             return 'vencido'
@@ -219,10 +268,13 @@ class Lote(models.Model):
         """
         Verifica si el lote puede ser dispensado.
         Un lote no puede dispensarse si:
+        - Está en cuarentena o inactivo
         - Está vencido
         - Su vida útil remanente es menor a los días de tratamiento
         - No tiene stock
         """
+        if self.en_cuarentena or not self.activo:
+            return False
         if self.esta_vencido:
             return False
         if self.cantidad_actual <= 0:

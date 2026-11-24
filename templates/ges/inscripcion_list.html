@@ -2,16 +2,49 @@
 {% block title %}Inscripciones GES/AUGE{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-            <h4 class="mb-1"><i class="bi bi-shield-check text-primary me-2"></i>Inscripciones GES / AUGE</h4>
-            <p class="text-muted small mb-0">Control de patologías garantizadas y saldo de cuotas farmacológicas (Ley N° 19.966)</p>
+            <h4 class="fw-bolder mb-1"><i class="bi bi-shield-check text-danger me-2"></i>Inscripciones GES / AUGE</h4>
+            <p class="text-muted small mb-0">Control de patologías garantizadas y saldo de cuotas farmacológicas por paciente</p>
         </div>
     </div>
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <a class="nav-link text-muted fw-semibold" href="{% url 'core:paciente_list' %}">
+                <i class="bi bi-people me-1"></i>Pacientes
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link active fw-bold text-dark" href="{% url 'ges:inscripcion_list' %}">
+                <i class="bi bi-shield-check text-danger me-1"></i>Cuotas GES
+            </a>
+        </li>
+    </ul>
+
+    {% if user.rol == 'admin' and escenario_activo %}
+    <ul class="nav nav-pills mb-3 gap-2">
+        <li class="nav-item">
+            <a class="nav-link py-1 px-3 small fw-semibold {% if vista_escenario != 'completo' %}active bg-success{% else %}bg-white text-dark border{% endif %}"
+               href="{% url 'ges:inscripcion_list' %}?vista=escenario{% if query %}&q={{ query|urlencode }}{% endif %}">
+                <i class="bi bi-easel2-fill me-1"></i>Escenario Activo: {{ escenario_activo.nombre }}
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link py-1 px-3 small fw-semibold {% if vista_escenario == 'completo' %}active bg-dark{% else %}bg-white text-dark border{% endif %}"
+               href="{% url 'ges:inscripcion_list' %}?vista=completo{% if query %}&q={{ query|urlencode }}{% endif %}">
+                <i class="bi bi-people-fill me-1"></i>Ver Padrón Completo
+            </a>
+        </li>
+    </ul>
+    {% endif %}
 
     <div class="card shadow-sm border-0">
         <div class="card-body">
             <form method="get" class="row g-2 mb-3">
+                {% if user.rol == 'admin' %}
+                <input type="hidden" name="vista" value="{{ vista_escenario }}">
+                {% endif %}
                 <div class="col-md-9">
                     <div class="input-group">
                         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
@@ -66,7 +99,11 @@
                         <tr>
                             <td colspan="8" class="text-center py-4 text-muted">
                                 <i class="bi bi-folder-x fs-3 d-block mb-2"></i>
+                                {% if escenario_sin_pacientes and not query %}
+                                Este escenario aún no tiene pacientes asignados.
+                                {% else %}
                                 No se encontraron inscripciones GES activas.
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}

@@ -2,22 +2,189 @@
 {% block title %}Lotes / Stock{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4><i class="bi bi-box-seam me-2"></i>Lotes / Stock (FEFO)</h4>
-        <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-cesfam"><i class="bi bi-plus-circle me-1"></i>Nuevo Lote</a>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-box-seam text-danger me-2"></i>Lotes / Stock (FEFO)</h4>
+            <p class="text-muted small mb-0 mt-1">Control de lotes en Bodega Central y Vitrina, ordenados por fecha de vencimiento y gestión de bajas a cuarentena</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
+            <a href="{% url 'farmacia:traspaso' %}" class="btn btn-outline-dark">
+                <i class="bi bi-arrow-left-right me-1"></i>Traspaso Bodega → Vitrina
+            </a>
+            {% endif %}
+            <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-cesfam">
+                <i class="bi bi-plus-circle me-1"></i>Nuevo Lote
+            </a>
+        </div>
     </div>
+
+    <!-- Pestañas contextuales del módulo Inventario, Bodega & FEFO -->
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <a class="nav-link active fw-bold text-dark" href="{% url 'farmacia:lote_list' %}">
+                <i class="bi bi-box-seam text-danger me-1"></i>Lotes / Stock (FEFO)
+            </a>
+        </li>
+        {% if user.rol == 'quimico' or user.rol == 'tecnico' or user.rol == 'admin' %}
+        <li class="nav-item">
+            <a class="nav-link text-muted fw-semibold" href="{% url 'farmacia:movimiento_list' %}">
+                <i class="bi bi-arrow-left-right me-1"></i>Traspasos Bodega
+            </a>
+        </li>
+        {% endif %}
+        <li class="nav-item">
+            <a class="nav-link text-danger fw-semibold" href="{% url 'farmacia:alertas_vencimiento' %}">
+                <i class="bi bi-exclamation-triangle me-1"></i>Semáforo FEFO
+            </a>
+        </li>
+    </ul>
+
+    <!-- Barra compacta de contadores resumen -->
+    <div class="row g-2 mb-3">
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm px-3 py-2 h-100" style="border-left: 4px solid #18181B !important;">
+                <div class="small text-muted fw-semibold text-uppercase" style="font-size: 0.7rem;">Total Unidades en Bodega</div>
+                <div class="fs-4 fw-bolder text-dark">{{ total_unidades_bodega }} <span class="fs-6 fw-normal text-muted">unid.</span></div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border-0 shadow-sm px-3 py-2 h-100" style="border-left: 4px solid #10B981 !important;">
+                <div class="small text-muted fw-semibold text-uppercase" style="font-size: 0.7rem;">Total Unidades en Vitrina</div>
+                <div class="fs-4 fw-bolder text-success">{{ total_unidades_vitrina }} <span class="fs-6 fw-normal text-muted">unid.</span></div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <a href="{% url 'farmacia:lote_list' %}?alerta=30" class="card border-0 shadow-sm px-3 py-2 h-100 text-decoration-none" style="border-left: 4px solid #F59E0B !important;">
+                <div class="small text-muted fw-semibold text-uppercase" style="font-size: 0.7rem;">Lotes Críticos (&lt;=30d)</div>
+                <div class="fs-4 fw-bolder text-warning">{{ lotes_criticos_30 }} <span class="fs-6 fw-normal text-muted">lote(s)</span></div>
+            </a>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <a href="{% url 'farmacia:lote_list' %}?alerta=vencido" class="card border-0 shadow-sm px-3 py-2 h-100 text-decoration-none" style="border-left: 4px solid #C8102E !important;">
+                <div class="small text-muted fw-semibold text-uppercase" style="font-size: 0.7rem;">Vencidos Pendientes de Baja</div>
+                <div class="fs-4 fw-bolder text-danger">{{ lotes_vencidos_pendientes }} <span class="fs-6 fw-normal text-muted">lote(s)</span></div>
+            </a>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-body">
             <form method="get" class="row g-2 mb-3">
                 <div class="col-md-4"><input type="text" name="q" class="form-control" placeholder="Buscar por lote o medicamento..." value="{{ query }}"></div>
                 <div class="col-md-3"><select name="ubicacion" class="form-select"><option value="">Todas las ubicaciones</option>{% for u in ubicaciones %}<option value="{{ u.pk }}" {% if ubicacion_id == u.pk|stringformat:"s" %}selected{% endif %}>{{ u.nombre }}</option>{% endfor %}</select></div>
-                <div class="col-md-3"><select name="alerta" class="form-select"><option value="">Todos los estados</option><option value="vencido" {% if alerta == "vencido" %}selected{% endif %}>Vencidos</option><option value="30" {% if alerta == "30" %}selected{% endif %}>Vence 30 días</option><option value="60" {% if alerta == "60" %}selected{% endif %}>Vence 60 días</option><option value="90" {% if alerta == "90" %}selected{% endif %}>Vence 90 días</option></select></div>
+                <div class="col-md-3">
+                    <select name="alerta" class="form-select">
+                        <option value="">Todos los activos</option>
+                        <option value="vencido" {% if alerta == "vencido" %}selected{% endif %}>Vencidos (Pendientes de Baja)</option>
+                        <option value="30" {% if alerta == "30" %}selected{% endif %}>Vence 30 días</option>
+                        <option value="60" {% if alerta == "60" %}selected{% endif %}>Vence 60 días</option>
+                        <option value="90" {% if alerta == "90" %}selected{% endif %}>Vence 90 días</option>
+                        <option value="cuarentena" {% if alerta == "cuarentena" %}selected{% endif %}>Cuarentena / Dados de Baja</option>
+                    </select>
+                </div>
                 <div class="col-md-2"><button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-filter me-1"></i>Filtrar</button></div>
             </form>
             <div class="table-responsive">
-                <table class="table table-cesfam">
-                    <thead><tr><th>Lote</th><th>Medicamento</th><th>Ubicación</th><th>Stock</th><th>F. Vencimiento</th><th>Días</th><th>Alerta</th></tr></thead>
-                    <tbody>{% for l in lotes %}<tr class="{% if l.esta_vencido %}table-danger{% elif l.dias_para_vencer <= 30 %}table-warning{% endif %}"><td><strong>{{ l.numero_lote }}</strong></td><td>{{ l.medicamento.nombre_generico }}</td><td>{{ l.ubicacion.nombre }}</td><td>{{ l.cantidad_actual }}</td><td>{{ l.fecha_vencimiento|date:"d/m/Y" }}</td><td>{{ l.dias_para_vencer }}</td><td><span class="badge badge-{{ l.alerta_vencimiento }}">{{ l.alerta_vencimiento|upper }}</span></td></tr>{% empty %}<tr><td colspan="7" class="text-center text-muted">No hay lotes.</td></tr>{% endfor %}</tbody>
+                <table class="table table-cesfam align-middle">
+                    <thead>
+                        <tr>
+                            <th>Lote</th>
+                            <th>Medicamento</th>
+                            <th>Ubicación</th>
+                            <th>Stock</th>
+                            <th>F. Vencimiento</th>
+                            <th>Días</th>
+                            <th>Alerta / Estado</th>
+                            <th class="text-end">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for l in lotes %}
+                    <tr class="{% if l.en_cuarentena %}table-secondary text-muted{% elif l.esta_vencido %}table-danger{% elif l.dias_para_vencer <= 30 %}table-warning{% endif %}">
+                        <td><strong><code>{{ l.numero_lote }}</code></strong></td>
+                        <td>
+                            <strong>{{ l.medicamento.nombre_generico }}</strong> {{ l.medicamento.concentracion }}
+                            {% if l.en_cuarentena and l.motivo_cuarentena %}
+                            <br><small class="text-muted">Motivo baja: {{ l.motivo_cuarentena }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="small">{{ l.ubicacion.nombre }}</td>
+                        <td class="fw-bold">{{ l.cantidad_actual }}</td>
+                        <td class="small">{{ l.fecha_vencimiento|date:"d/m/Y" }}</td>
+                        <td class="small fw-bold">{{ l.dias_para_vencer }}d</td>
+                        <td>
+                            {% if l.en_cuarentena %}
+                            <span class="badge bg-dark">CUARENTENA / BAJA</span>
+                            {% else %}
+                            <span class="badge badge-{{ l.alerta_vencimiento }}">{{ l.alerta_vencimiento|upper }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if l.en_cuarentena %}
+                            <span class="badge bg-secondary">Retirado ({{ l.fecha_cuarentena|date:"d/m/Y" }})</span>
+                            {% elif l.esta_vencido %}
+                                {% if user.rol == 'quimico' %}
+                                <button type="button" class="btn btn-sm btn-danger fw-bold shadow-sm"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#modalCuarentena{{ l.pk }}">
+                                    <i class="bi bi-trash3-fill me-1"></i>Retirar / Dar de Baja (Cuarentena)
+                                </button>
+                                <!-- Modal Confirmar Baja a Cuarentena -->
+                                <div class="modal fade text-start" id="modalCuarentena{{ l.pk }}" tabindex="-1" aria-hidden="true">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content">
+                                            <div class="modal-header bg-danger text-white">
+                                                <h5 class="modal-title"><i class="bi bi-shield-exclamation me-2"></i>Retiro y Baja a Cuarentena</h5>
+                                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <form method="post" action="{% url 'farmacia:lote_cuarentena' l.pk %}">
+                                                {% csrf_token %}
+                                                <div class="modal-body">
+                                                    <p class="small mb-2">
+                                                        Se retirará el lote vencido <strong>{{ l.numero_lote }}</strong> (<strong>{{ l.medicamento.nombre_generico }}</strong> — {{ l.cantidad_actual }} unid.) desde <strong>{{ l.ubicacion.nombre }}</strong> para trasladarlo a <strong>Cuarentena / Baja por Vencimiento</strong>.
+                                                    </p>
+                                                    <div class="mb-3">
+                                                        <label class="form-label fw-bold small">Motivo / N° Acta de Merma</label>
+                                                        <input type="text" name="motivo" class="form-control" required
+                                                               value="Baja por vencimiento ({{ l.fecha_vencimiento|date:'d/m/Y' }}) — Retiro físico de {{ l.ubicacion.nombre }}">
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                    <button type="submit" class="btn btn-danger fw-bold">
+                                                        <i class="bi bi-check-lg me-1"></i>Confirmar Baja a Cuarentena
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% else %}
+                                <span class="badge bg-dark" title="Solo el Químico Farmacéutico puede dar de baja lotes vencidos">
+                                    <i class="bi bi-lock-fill me-1"></i>Bloqueado (Baja por Q.F.)
+                                </span>
+                                {% endif %}
+                            {% else %}
+                            <div class="d-inline-flex flex-wrap justify-content-end gap-1">
+                                {% if l.ubicacion.tipo == 'bodega' and l.cantidad_actual > 0 %}
+                                    {% if user.rol == 'tecnico' or user.rol == 'quimico' %}
+                                    <a href="{% url 'farmacia:traspaso' %}?lote={{ l.pk }}" class="btn btn-sm btn-cesfam">
+                                        <i class="bi bi-arrow-left-right me-1"></i>Traspasar a Vitrina
+                                    </a>
+                                    {% endif %}
+                                {% endif %}
+                                <a href="{% url 'farmacia:medicamento_detalle' l.medicamento.pk %}" class="btn btn-sm btn-outline-dark">
+                                    <i class="bi bi-eye me-1"></i>Ver Ficha / Kardex
+                                </a>
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-center text-muted py-4">No se encontraron lotes en esta vista.</td></tr>
+                    {% endfor %}
+                    </tbody>
                 </table>
             </div>
         </div>

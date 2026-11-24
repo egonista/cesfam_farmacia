@@ -39,8 +39,8 @@ class AuditMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        # Solo auditar métodos de escritura en vistas relevantes
-        if request.method in ('POST', 'PUT', 'DELETE') and request.user.is_authenticated:
+        # Solo auditar métodos de escritura válidos (los 403/errores de permisos ya los audita denegar_acceso)
+        if request.method in ('POST', 'PUT', 'DELETE') and request.user.is_authenticated and response.status_code < 400:
             try:
                 from core.models import AuditoriaInmutable
                 entidad = request.path.strip('/').split('/')[0] if request.path.strip('/') else 'dashboard'

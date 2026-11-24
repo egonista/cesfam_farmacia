@@ -1,16 +1,16 @@
 {% extends 'base.html' %}
-{% block title %}Gestión de Usuarios y Roles RBAC{% endblock %}
+{% block title %}Gestión de Usuarios y Perfiles{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h4 class="fw-bolder mb-0"><i class="bi bi-shield-lock-fill text-danger me-2"></i>Gestión de Usuarios y Matriz RBAC</h4>
+        <h4 class="fw-bolder mb-0"><i class="bi bi-people-fill text-danger me-2"></i>Gestión de Usuarios y Perfiles</h4>
         <p class="text-muted small mb-0 mt-1">
-            Control de Acceso Basado en Roles (RF-01, RF-02, RNF-01 y RNF-02) con contraseñas cifradas bajo Argon2id
+            Administración del personal habilitado, datos de contacto y permisos por función asistencial
         </p>
     </div>
     {% if user.rol == 'admin' %}
     <button type="button" class="btn btn-cesfam" data-bs-toggle="modal" data-bs-target="#modalNuevoUsuario">
-        <i class="bi bi-person-plus-fill me-1"></i>Crear Cuenta de Usuario
+        <i class="bi bi-person-plus-fill me-1"></i>Registrar Funcionario
     </button>
     {% endif %}
 </div>
@@ -18,8 +18,8 @@
 <!-- Tabla de Usuarios Registrados -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-people-fill me-2 text-danger"></i>Dotación de Operadores Habilitados en PostgreSQL</span>
-        <span class="badge bg-dark">{{ usuarios|length }} cuentas activas</span>
+        <span><i class="bi bi-person-badge me-2 text-danger"></i>Dotación de Personal del Establecimiento</span>
+        <span class="badge bg-dark">{{ usuarios|length }} cuentas registradas</span>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -28,11 +28,11 @@
                     <tr>
                         <th>Usuario</th>
                         <th>Nombre Completo</th>
-                        <th>RUT (Módulo 11)</th>
+                        <th>RUT</th>
                         <th>Teléfono</th>
                         <th>Correo Institucional</th>
-                        <th>Rol Sanitario (RBAC)</th>
-                        <th>2FA / PIN</th>
+                        <th>Cargo / Función</th>
+                        <th>PIN Controlados</th>
                         <th>Estado</th>
                         <th>Acciones</th>
                     </tr>
@@ -52,7 +52,7 @@
                         </td>
                         <td>
                             {% if u.pin_seguridad or u.totp_secret %}
-                            <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>2FA</span>
+                            <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Habilitado</span>
                             {% else %}
                             <span class="badge bg-light text-muted border">Estándar</span>
                             {% endif %}
@@ -66,7 +66,14 @@
                         </td>
                         <td>
                             <div class="d-flex gap-1">
-                                <a href="{% url 'core:simular_rol' u.rol %}" class="btn btn-sm btn-outline-dark" title="Simular este rol">
+                                <button type="button" class="btn btn-sm btn-outline-primary"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#modalEditarUsuario"
+                                        onclick="cargarEdicionUsuario('{{ u.pk }}', '{{ u.username|escapejs }}', '{{ u.rut|escapejs }}', '{{ u.first_name|escapejs }}', '{{ u.last_name|escapejs }}', '{{ u.telefono|default:'+56984120091'|escapejs }}', '{{ u.email|default:''|escapejs }}', '{{ u.rol|escapejs }}')"
+                                        title="Editar datos y rol">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                                <a href="{% url 'core:simular_rol' u.rol %}" class="btn btn-sm btn-outline-dark" title="Cambiar a este perfil">
                                     <i class="bi bi-box-arrow-in-right"></i>
                                 </a>
                                 {% if user.rol == 'admin' and u.pk != user.pk %}
@@ -74,7 +81,7 @@
                                     {% csrf_token %}
                                     <input type="hidden" name="accion_post" value="toggle_estado">
                                     <input type="hidden" name="usuario_id" value="{{ u.pk }}">
-                                    <button type="submit" class="btn btn-sm {% if u.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" title="Activar/Desactivar usuario (RF-01)">
+                                    <button type="submit" class="btn btn-sm {% if u.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %}" title="Activar o desactivar cuenta">
                                         <i class="bi {% if u.is_active %}bi-person-slash{% else %}bi-person-check{% endif %}"></i>
                                     </button>
                                 </form>
@@ -95,7 +102,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>Registrar Nuevo Operador en CESFAM</h5>
+                <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>Registrar Nuevo Funcionario</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="post">
@@ -103,15 +110,15 @@
                 <div class="modal-body">
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label">Nombre de Usuario (Login)</label>
+                            <label class="form-label">Nombre de Usuario</label>
                             <input type="text" name="username" class="form-control" required placeholder="ej: qf_valenzuela">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">RUT Chileno (Módulo 11)</label>
+                            <label class="form-label">RUT</label>
                             <input type="text" name="rut" class="form-control" data-validate-rut required placeholder="12.345.678-5">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Rol Sanitario (RBAC)</label>
+                            <label class="form-label">Cargo / Perfil</label>
                             <select name="rol" class="form-select" required>
                                 {% for val, label in roles %}
                                 <option value="{{ val }}">{{ label }}</option>
@@ -137,17 +144,86 @@
                         <div class="col-md-8">
                             <label class="form-label">Contraseña Inicial</label>
                             <input type="password" name="password" class="form-control" value="Inacap2026!" required>
-                            <small class="text-muted">Se almacenará cifrada con hash unidireccional Argon2id.</small>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Crear Usuario RBAC</button>
+                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Guardar Funcionario</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+<!-- Modal Editar Usuario y Asignar Rol -->
+<div class="modal fade" id="modalEditarUsuario" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Editar Funcionario y Asignación de Rol</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="accion_post" value="editar_usuario">
+                <input type="hidden" name="usuario_id" id="edit_usuario_id">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Usuario (Login)</label>
+                            <input type="text" id="edit_username" class="form-control" disabled>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">RUT</label>
+                            <input type="text" name="rut" id="edit_rut" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Cargo / Rol Asignado</label>
+                            <select name="rol" id="edit_rol" class="form-select" required>
+                                {% for val, label in roles %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Nombres</label>
+                            <input type="text" name="first_name" id="edit_first_name" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Apellidos</label>
+                            <input type="text" name="last_name" id="edit_last_name" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Teléfono</label>
+                            <input type="text" name="telefono" id="edit_telefono" class="form-control" required>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label fw-bold">Correo Institucional</label>
+                            <input type="email" name="email" id="edit_email" class="form-control">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam"><i class="bi bi-save me-1"></i>Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function cargarEdicionUsuario(id, username, rut, firstName, lastName, telefono, email, rol) {
+    document.getElementById('edit_usuario_id').value = id;
+    document.getElementById('edit_username').value = username;
+    document.getElementById('edit_rut').value = rut;
+    document.getElementById('edit_first_name').value = firstName;
+    document.getElementById('edit_last_name').value = lastName;
+    document.getElementById('edit_telefono').value = telefono;
+    document.getElementById('edit_email').value = email;
+    document.getElementById('edit_rol').value = rol;
+}
+</script>
 {% endif %}
 {% endblock %}

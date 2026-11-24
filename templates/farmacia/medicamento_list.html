@@ -3,13 +3,15 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h4 class="fw-bolder mb-0"><i class="bi bi-capsule-pill text-danger me-2"></i>Mantenedor de Medicamentos e Insumos Clínicos (RF-03)</h4>
-        <p class="text-muted small mb-0 mt-1">Catálogo oficial del CESFAM con categorización, control de stock mínimo y marca de fiscalización ISP</p>
+        <h4 class="fw-bolder mb-0"><i class="bi bi-capsule-pill text-danger me-2"></i>Catálogo de Medicamentos e Insumos Clínicos</h4>
+        <p class="text-muted small mb-0 mt-1">Arsenal oficial del establecimiento con clasificación terapéutica, control de stock mínimo y medicamentos controlados</p>
     </div>
     <div class="d-flex gap-2">
+        {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
         <a href="{% url 'farmacia:lote_crear' %}" class="btn btn-outline-dark btn-sm">
             <i class="bi bi-box-seam me-1"></i>Ingresar Lote FEFO
         </a>
+        {% endif %}
         {% if user.rol == 'admin' or user.rol == 'quimico' %}
         <button type="button" class="btn btn-cesfam btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoMedicamento">
             <i class="bi bi-plus-circle me-1"></i>Nuevo Medicamento / Insumo
@@ -44,15 +46,18 @@
                 <tbody>
                 {% for m in medicamentos %}
                 <tr>
-                    <td><code class="fw-bold">{{ m.codigo }}</code></td>
+                    <td class="whitespace-nowrap text-nowrap"><code class="fw-bold">{{ m.codigo }}</code></td>
                     <td>
                         <strong>{{ m.nombre_generico }}</strong>
-                        {% if m.es_controlado %}<span class="badge bg-danger ms-1">CONTROLADO D.S. 404/405</span>{% endif %}
+                        {% if m.es_controlado %}<span class="badge bg-danger ms-1">CONTROLADO</span>{% endif %}
                     </td>
                     <td>{{ m.concentracion }}</td>
                     <td>{{ m.forma_farmaceutica }}</td>
                     <td><span class="badge bg-secondary">{{ m.categoria.nombre }}</span></td>
-                    <td class="fw-bold fs-6">{{ m.stock_total }}</td>
+                    <td>
+                        <div class="fw-bold fs-6 lh-sm">{{ m.stock_total }}</div>
+                        <div class="text-muted text-nowrap" style="font-size: 0.72rem;">Vitrina: {{ m.stock_vitrina }} · Bodega: {{ m.stock_bodega }}</div>
+                    </td>
                     <td class="text-muted small">{{ m.stock_minimo }}</td>
                     <td>
                         {% if m.en_quiebre %}
@@ -61,10 +66,23 @@
                         <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>ÓPTIMO</span>
                         {% endif %}
                     </td>
-                    <td>
-                        <a href="{% url 'farmacia:medicamento_detalle' m.pk %}" class="btn btn-sm btn-outline-dark" title="Ver lotes FEFO y Kardex">
-                            <i class="bi bi-eye me-1"></i>Lotes FEFO
-                        </a>
+                    <td class="whitespace-nowrap text-nowrap">
+                        <div class="d-inline-flex flex-nowrap align-items-center gap-1">
+                            <a href="{% url 'farmacia:medicamento_detalle' m.pk %}" class="btn btn-sm btn-outline-dark whitespace-nowrap text-nowrap" title="Ver lotes FEFO y Kardex">
+                                <i class="bi bi-eye me-1"></i>Lotes FEFO
+                            </a>
+                            {% if m.en_quiebre %}
+                                {% if user.rol == 'tecnico' %}
+                                <a href="{% url 'farmacia:orden_list' %}?medicamento={{ m.pk }}" class="btn btn-sm btn-cesfam whitespace-nowrap text-nowrap" title="Generar sugerencia de pedido para este producto">
+                                    <i class="bi bi-truck me-1"></i>Sugerir Pedido
+                                </a>
+                                {% elif user.rol == 'quimico' or user.rol == 'admin' %}
+                                <a href="{% url 'farmacia:orden_list' %}?medicamento={{ m.pk }}" class="btn btn-sm btn-cesfam whitespace-nowrap text-nowrap" title="Generar pedido a CENABAST para este producto">
+                                    <i class="bi bi-truck me-1"></i>Pedir CENABAST
+                                </a>
+                                {% endif %}
+                            {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% empty %}
@@ -76,13 +94,13 @@
     </div>
 </div>
 
-<!-- Modal Crear Nuevo Medicamento / Insumo (RF-03) -->
+<!-- Modal Crear Nuevo Medicamento / Insumo -->
 {% if user.rol == 'admin' or user.rol == 'quimico' %}
 <div class="modal fade" id="modalNuevoMedicamento" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title"><i class="bi bi-capsule-pill me-2"></i>Incorporar Medicamento o Insumo al Arsenal (RF-03)</h5>
+                <h5 class="modal-title"><i class="bi bi-capsule-pill me-2"></i>Incorporar Medicamento o Insumo al Arsenal</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form method="post">
@@ -139,7 +157,7 @@
                         <div class="col-md-4 d-flex align-items-end">
                             <div class="form-check mb-2">
                                 <input type="checkbox" name="es_controlado" class="form-check-input" id="chkCtrl">
-                                <label class="form-check-label fw-bold text-danger" for="chkCtrl">Sujeto a Control ISP (D.S. 404/405)</label>
+                                <label class="form-check-label fw-bold text-danger" for="chkCtrl">Medicamento Controlado (Estupefaciente / Psicotrópico)</label>
                             </div>
                         </div>
                     </div>

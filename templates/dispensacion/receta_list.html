@@ -1,18 +1,119 @@
 {% extends 'base.html' %}
-{% block title %}Recetas{% endblock %}
+{% block title %}Recetas Médicas{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4><i class="bi bi-file-earmark-medical me-2"></i>Recetas Médicas</h4>
-        <a href="{% url 'dispensacion:receta_crear' %}" class="btn btn-cesfam"><i class="bi bi-plus-circle me-1"></i>Nueva Receta</a>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-file-earmark-medical text-danger me-2"></i>Recetas Médicas</h4>
+            <p class="text-muted small mb-0">Prescripciones médicas registradas en el establecimiento</p>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            {% if user.rol == 'quimico' or user.rol == 'tecnico' %}
+            <a href="{% url 'dispensacion:dispensar' %}" class="btn btn-outline-dark btn-sm">
+                <i class="bi bi-clipboard2-check me-1"></i>Ventanilla
+            </a>
+            {% endif %}
+            <a href="{% url 'dispensacion:historial' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-clock-history me-1"></i>Historial Entregas
+            </a>
+            <a href="{% url 'dispensacion:receta_crear' %}" class="btn btn-cesfam btn-sm">
+                <i class="bi bi-plus-circle me-1"></i>Nueva Receta
+            </a>
+        </div>
     </div>
-    <div class="card"><div class="card-body">
-        <form method="get" class="row g-2 mb-3">
-            <div class="col-md-5"><input type="text" name="q" class="form-control" placeholder="Buscar por N° receta, RUT o apellido..." value="{{ query }}"></div>
-            <div class="col-md-3"><select name="estado" class="form-select"><option value="">Todos los estados</option>{% for val, label in estados %}<option value="{{ val }}" {% if estado == val %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-            <div class="col-md-2"><button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-search me-1"></i>Buscar</button></div>
-        </form>
-        <div class="table-responsive"><table class="table table-cesfam"><thead><tr><th>N° Receta</th><th>Paciente</th><th>Médico</th><th>Tipo</th><th>Fecha</th><th>Estado</th><th>Vigente</th><th></th></tr></thead><tbody>{% for r in recetas %}<tr><td><strong>{{ r.numero_receta }}</strong></td><td>{{ r.paciente.nombre_completo }}</td><td>{{ r.medico }}</td><td>{{ r.get_tipo_display }}</td><td>{{ r.fecha_emision|date:"d/m/Y" }}</td><td><span class="badge bg-{% if r.estado == 'pendiente' %}warning text-dark{% elif r.estado == 'total' %}success{% elif r.estado == 'anulada' %}danger{% else %}secondary{% endif %}">{{ r.get_estado_display }}</span></td><td>{% if r.esta_vigente %}✅{% else %}❌{% endif %}</td><td><a href="{% url 'dispensacion:receta_detalle' r.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td></tr>{% empty %}<tr><td colspan="8" class="text-center text-muted">Sin recetas.</td></tr>{% endfor %}</tbody></table></div>
-    </div></div>
+
+    {% if user.rol == 'admin' and escenario_activo %}
+    <ul class="nav nav-pills mb-3 gap-2">
+        <li class="nav-item">
+            <a class="nav-link py-1 px-3 small fw-semibold {% if vista_escenario != 'completo' %}active bg-success{% else %}bg-white text-dark border{% endif %}"
+               href="{% url 'dispensacion:receta_list' %}?vista=escenario{% if query %}&q={{ query|urlencode }}{% endif %}{% if estado %}&estado={{ estado|urlencode }}{% endif %}">
+                <i class="bi bi-easel2-fill me-1"></i>En Taller Activo: {{ escenario_activo.nombre }} ({{ total_recetas_escenario }})
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link py-1 px-3 small fw-semibold {% if vista_escenario == 'completo' %}active bg-dark{% else %}bg-white text-dark border{% endif %}"
+               href="{% url 'dispensacion:receta_list' %}?vista=completo{% if query %}&q={{ query|urlencode }}{% endif %}{% if estado %}&estado={{ estado|urlencode }}{% endif %}">
+                <i class="bi bi-folder2-open me-1"></i>Todas las Recetas del CESFAM ({{ total_recetas_completo }})
+            </a>
+        </li>
+    </ul>
+    {% endif %}
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <form method="get" class="row g-2 mb-3">
+                {% if user.rol == 'admin' %}
+                <input type="hidden" name="vista" value="{{ vista_escenario }}">
+                {% endif %}
+                <div class="col-md-5"><input type="text" name="q" class="form-control" placeholder="Buscar por N° receta, RUT o apellido..." value="{{ query }}"></div>
+                <div class="col-md-3">
+                    <select name="estado" class="form-select">
+                        <option value="">Todos los estados</option>
+                        {% for val, label in estados %}
+                        <option value="{{ val }}" {% if estado == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2"><button type="submit" class="btn btn-cesfam w-100"><i class="bi bi-search me-1"></i>Buscar</button></div>
+            </form>
+            <div class="table-responsive">
+                <table class="table table-cesfam align-middle">
+                    <thead>
+                        <tr>
+                            <th>N° Receta</th>
+                            <th>Paciente</th>
+                            <th>Médico</th>
+                            <th>Tipo</th>
+                            <th>Fecha</th>
+                            <th>Estado</th>
+                            <th>Vigencia / Control</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in recetas %}
+                        <tr class="{% if r.esta_vencida %}table-danger{% endif %}">
+                            <td><strong><code>{{ r.numero_receta }}</code></strong></td>
+                            <td>{{ r.paciente.nombre_completo }}</td>
+                            <td>{{ r.medico }}</td>
+                            <td>{{ r.get_tipo_display }}</td>
+                            <td>{{ r.fecha_emision|date:"d/m/Y" }}</td>
+                            <td>
+                                {% if r.esta_vencida %}
+                                <span class="badge bg-danger">Vencida</span>
+                                {% elif r.es_controlada and not r.autorizada_qf %}
+                                <span class="badge bg-warning text-dark border border-danger">Requiere Autorización Q.F.</span>
+                                {% elif r.es_controlada and r.autorizada_qf %}
+                                <span class="badge bg-success">Autorizada Q.F.</span>
+                                {% else %}
+                                <span class="badge bg-{% if r.estado == 'pendiente' %}warning text-dark{% elif r.estado == 'total' %}success{% elif r.estado == 'anulada' %}danger{% else %}secondary{% endif %}">{{ r.get_estado_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if r.esta_vigente %}
+                                <span class="badge bg-success">Vigente</span>
+                                {% else %}
+                                <span class="badge bg-danger">No Vigente</span>
+                                {% endif %}
+                            </td>
+                            <td><a href="{% url 'dispensacion:receta_detalle' r.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted py-4">
+                                {% if escenario_sin_recetas and not query and not estado %}
+                                <i class="bi bi-easel2 fs-4 d-block mb-1 text-secondary"></i>
+                                Este escenario aún no tiene recetas asignadas.
+                                {% else %}
+                                Sin recetas{% if query %} para "{{ query }}"{% endif %}.
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

@@ -2,20 +2,170 @@
 {% block title %}Nuevo Lote{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <h4><i class="bi bi-box-seam me-2"></i>Registrar Nuevo Lote</h4>
-    <div class="card mt-3"><div class="card-body">
-        <form method="post">{% csrf_token %}
-            <div class="row g-3">
-                <div class="col-md-6"><label class="form-label">Medicamento</label><select name="medicamento" class="form-select" required>{% for m in medicamentos %}<option value="{{ m.pk }}">{{ m.nombre_generico }} {{ m.concentracion }}</option>{% endfor %}</select></div>
-                <div class="col-md-6"><label class="form-label">N° Lote</label><input type="text" name="numero_lote" class="form-control" required></div>
-                <div class="col-md-3"><label class="form-label">Fecha Fabricación</label><input type="date" name="fecha_fabricacion" class="form-control" required></div>
-                <div class="col-md-3"><label class="form-label">Fecha Vencimiento</label><input type="date" name="fecha_vencimiento" class="form-control" required></div>
-                <div class="col-md-3"><label class="form-label">Cantidad Inicial</label><input type="number" name="cantidad_inicial" class="form-control" min="1" required></div>
-                <div class="col-md-3"><label class="form-label">Ubicación</label><select name="ubicacion" class="form-select" required>{% for u in ubicaciones %}<option value="{{ u.pk }}">{{ u.nombre }}</option>{% endfor %}</select></div>
-                <div class="col-md-6"><label class="form-label">Proveedor</label><input type="text" name="proveedor" class="form-control"></div>
-            </div>
-            <div class="mt-4"><button type="submit" class="btn btn-cesfam"><i class="bi bi-check-circle me-1"></i>Registrar Lote</button> <a href="{% url 'farmacia:lote_list' %}" class="btn btn-outline-secondary ms-2">Cancelar</a></div>
-        </form>
-    </div></div>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-box-seam text-danger me-2"></i>Registrar Nuevo Lote</h4>
+            <p class="text-muted small mb-0 mt-1">Ingreso de existencias con control de fechas de elaboración, vencimiento y respaldo de guía o remesa</p>
+        </div>
+        <a href="{% url 'farmacia:lote_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Volver a Lotes FEFO
+        </a>
+    </div>
+
+    {% if user.rol == 'tecnico' %}
+    <div class="alert alert-info py-2 small mb-3">
+        <i class="bi bi-shield-lock me-1"></i>
+        <strong>Control de Medicamentos Fiscalizados (ISP):</strong> El ingreso de estupefacientes y psicotrópicos (<code>CONTROLADO</code>) al inventario y al Libro Foliado corresponde exclusivamente al <strong>Químico Farmacéutico</strong>.
+    </div>
+    {% endif %}
+
+    <div class="alert alert-danger d-none py-2 small" id="loteFormErrorAlert" role="alert"></div>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="post" id="formRegistrarLote">
+                {% csrf_token %}
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Medicamento <span class="text-danger">*</span></label>
+                        <select name="medicamento" id="id_medicamento" class="form-select" required>
+                            {% for m in medicamentos %}
+                            <option value="{{ m.pk }}"
+                                    data-unidad-plural="{{ m.unidad_medida_plural }}"
+                                    {% if selected_med_id == m.pk|stringformat:"s" %}selected{% endif %}>
+                                {{ m.nombre_generico }} {{ m.concentracion }} ({{ m.forma_farmaceutica }}){% if m.es_controlado %} [CONTROLADO]{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">N° Lote <span class="text-danger">*</span></label>
+                        <input type="text" name="numero_lote" id="id_numero_lote" class="form-control" value="{{ form_data.numero_lote|default:'' }}" placeholder="Ej: LOT-2026-01" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Fecha Fabricación <span class="text-danger">*</span></label>
+                        <input type="date" name="fecha_fabricacion" id="id_fecha_fabricacion" class="form-control" value="{{ form_data.fecha_fabricacion|default:'' }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Fecha Vencimiento <span class="text-danger">*</span></label>
+                        <input type="date" name="fecha_vencimiento" id="id_fecha_vencimiento" class="form-control" value="{{ form_data.fecha_vencimiento|default:'' }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold" for="id_cantidad_inicial">Cantidad Inicial <span class="text-danger">*</span> <span class="text-muted fw-semibold" id="lblUnidadCantidad"></span></label>
+                        <input type="number" name="cantidad_inicial" id="id_cantidad_inicial" class="form-control" min="1" step="1" placeholder="Ej: 200" value="{{ form_data.cantidad_inicial|default:'' }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Ubicación <span class="text-danger">*</span></label>
+                        <select name="ubicacion" id="id_ubicacion" class="form-select" required>
+                            {% for u in ubicaciones %}
+                            <option value="{{ u.pk }}" data-tipo="{{ u.tipo }}" {% if form_data.ubicacion == u.pk|stringformat:"s" %}selected{% endif %}>
+                                {{ u.nombre }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Proveedor / Laboratorio</label>
+                        <input type="text" name="proveedor" class="form-control" value="{% if form_data %}{{ form_data.proveedor|default:'' }}{% else %}CENABAST{% endif %}" placeholder="Ej: CENABAST / Laboratorio Chile">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Motivo / N° de Guía o Remesa <span class="text-danger">*</span></label>
+                        <input type="text" name="motivo_ingreso" class="form-control" value="{{ form_data.motivo_ingreso|default:'' }}" placeholder="Ej: Remesa CENABAST Guía N° 98410 / Stock inicial laboratorio" required>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-cesfam">
+                        <i class="bi bi-check-circle me-1"></i>Registrar Lote
+                    </button>
+                    <a href="{% url 'farmacia:lote_list' %}" class="btn btn-outline-secondary ms-2">Cancelar</a>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+    const form = document.getElementById('formRegistrarLote');
+    const medSelect = document.getElementById('id_medicamento');
+    const lblUnidad = document.getElementById('lblUnidadCantidad');
+    const fabInput = document.getElementById('id_fecha_fabricacion');
+    const vencInput = document.getElementById('id_fecha_vencimiento');
+    const cantInput = document.getElementById('id_cantidad_inicial');
+    const ubicSelect = document.getElementById('id_ubicacion');
+    const alertBox = document.getElementById('loteFormErrorAlert');
+    const hoyIso = '{{ hoy_iso }}';
+
+    function actualizarUnidadCantidad() {
+        if (!medSelect || !lblUnidad) return;
+        const opt = medSelect.options[medSelect.selectedIndex];
+        const unidad = opt ? opt.dataset.unidadPlural : '';
+        lblUnidad.textContent = unidad ? `(${unidad})` : '';
+    }
+
+    function mostrarError(msg) {
+        alertBox.textContent = msg;
+        alertBox.classList.remove('d-none');
+        alertBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function limpiarError() {
+        alertBox.classList.add('d-none');
+        alertBox.textContent = '';
+    }
+
+    function actualizarMinVencimiento() {
+        if (!fabInput.value) return;
+        const d = new Date(fabInput.value + 'T00:00:00');
+        d.setDate(d.getDate() + 1);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        vencInput.min = `${yyyy}-${mm}-${dd}`;
+    }
+
+    fabInput.addEventListener('change', function () {
+        actualizarMinVencimiento();
+        limpiarError();
+    });
+    vencInput.addEventListener('change', limpiarError);
+    cantInput.addEventListener('input', limpiarError);
+    ubicSelect.addEventListener('change', limpiarError);
+
+    form.addEventListener('submit', function (ev) {
+        limpiarError();
+        const cantidad = parseInt(cantInput.value || '0', 10);
+        const fFab = fabInput.value;
+        const fVenc = vencInput.value;
+        const opcionUbic = ubicSelect.options[ubicSelect.selectedIndex];
+        const tipoUbic = opcionUbic ? opcionUbic.dataset.tipo : '';
+
+        if (isNaN(cantidad) || cantidad <= 0) {
+            ev.preventDefault();
+            mostrarError('La cantidad inicial del lote debe ser mayor a cero.');
+            cantInput.focus();
+            return;
+        }
+        if (fFab && fVenc && fVenc <= fFab) {
+            ev.preventDefault();
+            mostrarError('La fecha de vencimiento debe ser estrictamente posterior a la fecha de fabricación.');
+            vencInput.focus();
+            return;
+        }
+        if (fVenc && fVenc < hoyIso && tipoUbic === 'vitrina') {
+            ev.preventDefault();
+            mostrarError('No se permite registrar un lote ya vencido en Vitrina de Dispensación Mostrador.');
+            vencInput.focus();
+        }
+    });
+
+    medSelect.addEventListener('change', function () {
+        actualizarUnidadCantidad();
+        limpiarError();
+    });
+    actualizarMinVencimiento();
+    actualizarUnidadCantidad();
+})();
+</script>
 {% endblock %}

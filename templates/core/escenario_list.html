@@ -1,0 +1,390 @@
+{% extends 'base.html' %}
+{% block title %}Escenarios de Simulación{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <h4 class="fw-bolder mb-0">
+            <i class="bi bi-easel2-fill text-danger me-2"></i>Escenarios de Simulación
+        </h4>
+        <p class="text-muted small mb-0">
+            Agrupa pacientes y recetas en evaluaciones o talleres docentes sin alterar el inventario, los lotes ni los carros clínicos
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{% url 'core:escenario_crear' %}" class="btn btn-cesfam btn-sm px-3 py-2 fw-semibold">
+            <i class="bi bi-plus-circle me-1"></i>+ Nuevo Escenario
+        </a>
+    </div>
+</div>
+
+<!-- Pestañas de la Zona Docente -->
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link active fw-bold text-dark" href="{% url 'core:escenario_list' %}">
+            <i class="bi bi-easel2-fill text-danger me-1"></i>Escenarios y Talleres
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link text-muted fw-semibold" href="{% url 'core:banco_pacientes' %}">
+            <i class="bi bi-folder2-open me-1"></i>Banco de Pacientes
+        </a>
+    </li>
+</ul>
+
+{% if escenario_activo %}
+<div class="alert alert-success d-flex flex-wrap align-items-center justify-content-between gap-2 py-2 px-3 shadow-sm mb-3">
+    <div class="small">
+        <i class="bi bi-broadcast text-success me-1"></i>
+        <strong>Escenario Activo para Estudiantes (Técnico y Q.F.):</strong>
+        <span class="fw-bold">{{ escenario_activo.nombre }}</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <button type="button"
+                class="btn btn-sm btn-dark fw-semibold btn-inyectar-caso"
+                data-bs-toggle="modal"
+                data-bs-target="#modalInyectarCaso"
+                data-url="{% url 'core:escenario_inyectar_caso' escenario_activo.pk %}"
+                data-nombre="{{ escenario_activo.nombre }}">
+            <i class="bi bi-lightning-fill text-warning me-1"></i>+ Inyectar Caso Rápido
+        </button>
+        <span class="badge bg-success">En Curso</span>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 shadow-sm mb-3 small">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <span>No hay ningún escenario activo actualmente. Los estudiantes verán todo el padrón de pacientes y recetas como modo respaldo.</span>
+</div>
+{% endif %}
+
+<div class="row g-3">
+    {% for esc in escenarios %}
+    <div class="col-lg-6">
+        <div class="card h-100 shadow-sm {% if esc.activo %}border-success border-2{% else %}border-0{% endif %}">
+            <div class="card-body d-flex flex-column">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div>
+                        <h5 class="fw-bolder mb-1 text-dark">{{ esc.nombre }}</h5>
+                        <div class="text-muted" style="font-size: 0.76rem;">
+                            <i class="bi bi-person-badge me-1"></i>
+                            Creado por: <strong>{{ esc.creado_por.get_full_name|default:esc.creado_por.username|default:"Sistema" }}</strong>
+                            &middot; {{ esc.fecha_creacion|date:"d/m/Y H:i" }}
+                        </div>
+                    </div>
+                    {% if esc.activo %}
+                    <span class="badge bg-success px-2 py-1 text-nowrap">
+                        <i class="bi bi-check-circle-fill me-1"></i>Activo
+                    </span>
+                    {% else %}
+                    <span class="badge bg-secondary px-2 py-1 text-nowrap">
+                        <i class="bi bi-pause-circle me-1"></i>Inactivo
+                    </span>
+                    {% endif %}
+                </div>
+
+                <p class="small text-muted mb-3 flex-grow-1">
+                    {{ esc.descripcion|default:"Sin descripción adicional registrada." }}
+                </p>
+
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {% if esc.modalidad == 'INCIDENCIAS' %}
+                    <span class="badge bg-warning bg-opacity-25 text-dark border border-warning px-2 py-1">
+                        <i class="bi bi-lightning-charge-fill me-1"></i>Con Incidencias
+                    </span>
+                    {% else %}
+                    <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1">
+                        <i class="bi bi-people me-1"></i>Práctica Libre
+                    </span>
+                    {% endif %}
+                    <span class="badge bg-light text-dark border px-2 py-1">
+                        <i class="bi bi-people-fill text-primary me-1"></i>{{ esc.total_pacientes }} Paciente{{ esc.total_pacientes|pluralize:"s" }}
+                    </span>
+                    <span class="badge bg-light text-dark border px-2 py-1">
+                        <i class="bi bi-file-earmark-medical-fill text-danger me-1"></i>{{ esc.total_recetas }} Receta{{ esc.total_recetas|pluralize:"s" }}
+                    </span>
+                    {% if esc.consignas_personalizadas %}
+                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle px-2 py-1">
+                        <i class="bi bi-chat-square-text me-1"></i>Consigna docente{% if esc.mostrar_consigna_a_estudiantes %} (visible){% endif %}
+                    </span>
+                    {% endif %}
+                    {% if esc.modalidad == 'INCIDENCIAS' and esc.simular_quiebre %}
+                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle px-2 py-1">
+                        <i class="bi bi-exclamation-octagon me-1"></i>Quiebre{% if esc.medicamento_quiebre %}: {{ esc.medicamento_quiebre.nombre_generico }}{% endif %}
+                    </span>
+                    {% endif %}
+                    {% if esc.modalidad == 'INCIDENCIAS' and esc.simular_alerta_fefo %}
+                    <span class="badge bg-warning bg-opacity-25 text-dark border border-warning px-2 py-1">
+                        <i class="bi bi-hourglass-split me-1"></i>Alerta FEFO (12d)
+                    </span>
+                    {% endif %}
+                    {% if esc.modalidad == 'INCIDENCIAS' and esc.simular_consumo_carro %}
+                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle px-2 py-1">
+                        <i class="bi bi-heart-pulse me-1"></i>Consumo Carro de Paro
+                    </span>
+                    {% endif %}
+                </div>
+
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 pt-2 border-top">
+                    <div class="d-flex flex-wrap gap-1">
+                        {% if not esc.activo %}
+                        <form method="post" action="{% url 'core:escenario_activar' esc.pk %}" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-success fw-semibold">
+                                <i class="bi bi-play-fill me-1"></i>Activar
+                            </button>
+                        </form>
+                        {% else %}
+                        <button type="button"
+                                class="btn btn-sm btn-dark fw-semibold btn-inyectar-caso"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalInyectarCaso"
+                                data-url="{% url 'core:escenario_inyectar_caso' esc.pk %}"
+                                data-nombre="{{ esc.nombre }}">
+                            <i class="bi bi-lightning-fill text-warning me-1"></i>+ Inyectar Caso Rápido
+                        </button>
+                        {% endif %}
+
+                        <a href="{% url 'core:escenario_editar' esc.pk %}" class="btn btn-sm btn-outline-dark">
+                            <i class="bi bi-pencil-square me-1"></i>Editar
+                        </a>
+
+                        <form method="post" action="{% url 'core:escenario_duplicar' esc.pk %}" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Duplicar escenario para otra sección o evaluación">
+                                <i class="bi bi-copy me-1"></i>Duplicar
+                            </button>
+                        </form>
+
+                        <button type="button"
+                                class="btn btn-sm btn-outline-primary btn-restaurar-escenario"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalRestaurarEscenario"
+                                data-url="{% url 'core:escenario_restaurar_recetas' esc.pk %}"
+                                data-nombre="{{ esc.nombre }}"
+                                data-recetas="{{ esc.total_recetas }}">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Restaurar Recetas
+                        </button>
+                    </div>
+
+                    {% if esc.activo %}
+                    <span class="d-inline-block" tabindex="0" data-bs-toggle="tooltip" title="Activa otro escenario antes de eliminar este">
+                        <button type="button" class="btn btn-sm btn-outline-danger" disabled>
+                            <i class="bi bi-trash3 me-1"></i>Eliminar
+                        </button>
+                    </span>
+                    {% else %}
+                    <button type="button"
+                            class="btn btn-sm btn-outline-danger btn-eliminar-escenario"
+                            data-bs-toggle="modal"
+                            data-bs-target="#modalEliminarEscenario"
+                            data-url="{% url 'core:escenario_eliminar' esc.pk %}"
+                            data-nombre="{{ esc.nombre }}">
+                        <i class="bi bi-trash3 me-1"></i>Eliminar
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12">
+        <div class="card border-0 shadow-sm text-center py-5">
+            <div class="card-body">
+                <i class="bi bi-easel2 fs-1 text-muted d-block mb-2"></i>
+                <h6 class="fw-bold">Aún no hay escenarios de simulación configurados</h6>
+                <p class="text-muted small mb-3">Crea tu primer escenario para agrupar pacientes y recetas para un taller o evaluación.</p>
+                <a href="{% url 'core:escenario_crear' %}" class="btn btn-cesfam btn-sm">
+                    <i class="bi bi-plus-circle me-1"></i>+ Nuevo Escenario
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Modal Confirmar Restaurar Recetas del Escenario -->
+<div class="modal fade" id="modalRestaurarEscenario" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-arrow-counterclockwise me-2"></i>Restaurar Recetas del Escenario</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="formRestaurarEscenario" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="small mb-2">
+                        ¿Deseas restaurar las <strong id="restaurarRecetasCount">0</strong> receta(s) vinculadas al escenario
+                        <strong id="restaurarEscenarioNombre"></strong>?
+                    </p>
+                    <ul class="small text-muted mb-3">
+                        <li>Todas las recetas del escenario volverán a estado <strong>Pendiente</strong>.</li>
+                        <li>El contador <strong>dispensado</strong> de cada medicamento prescrito volverá a <strong>0</strong> y se limpiará la visación Q.F. previa.</li>
+                    </ul>
+                    <div class="alert alert-info py-2 small mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        El inventario, los lotes FEFO y los carros clínicos <strong>no serán modificados</strong>.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold">
+                        <i class="bi bi-check-lg me-1"></i>Confirmar Restauración
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Inyectar Caso Rápido en Vivo -->
+<div class="modal fade" id="modalInyectarCaso" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-lightning-charge-fill text-warning me-2"></i>Inyectar Caso Rápido en Vivo
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="formInyectarCaso" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">
+                        Crea un nuevo paciente y una receta pendiente directamente dentro de
+                        <strong id="inyectarEscenarioNombre" class="text-dark"></strong>.
+                        El nuevo caso aparecerá automáticamente en las pantallas abiertas de Técnico y Q.F. en pocos segundos.
+                    </p>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Nombres</label>
+                            <input type="text" name="nombres" class="form-control form-control-sm" value="Valentina Sofía" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Apellido Paterno</label>
+                            <input type="text" name="apellido_paterno" class="form-control form-control-sm" value="Riquelme" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Apellido Materno</label>
+                            <input type="text" name="apellido_materno" class="form-control form-control-sm" value="Navarro" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">RUT (opcional)</label>
+                            <input type="text" name="rut" class="form-control form-control-sm" placeholder="Vacío = generar RUT válido" data-validate-rut>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Previsión</label>
+                            <select name="prevision" class="form-select form-select-sm">
+                                {% for codigo, etiqueta in previsiones %}
+                                <option value="{{ codigo }}" {% if codigo == 'fonasa_b' %}selected{% endif %}>{{ etiqueta }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="form-check mb-1">
+                                <input class="form-check-input" type="checkbox" name="cronico" id="chkInyectarCronico" checked>
+                                <label class="form-check-label small fw-semibold" for="chkInyectarCronico">Paciente Crónico</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Medicamento a Prescribir <span class="text-danger">*</span></label>
+                            <select name="medicamento_id" class="form-select form-select-sm" required>
+                                {% for med in medicamentos_activos %}
+                                <option value="{{ med.pk }}">
+                                    {{ med.nombre_generico }} {{ med.concentracion }}{% if med.es_controlado %} [CONTROLADO]{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold">Cantidad</label>
+                            <input type="number" name="cantidad" class="form-control form-control-sm" value="30" min="1" max="180" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold">Tipo de Receta</label>
+                            <select name="tipo" class="form-select form-select-sm">
+                                {% for codigo, etiqueta in tipos_receta %}
+                                <option value="{{ codigo }}">{{ etiqueta }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Diagnóstico</label>
+                            <input type="text" name="diagnostico" class="form-control form-control-sm" value="Control de morbilidad / evaluación en vivo" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Posología</label>
+                            <input type="text" name="posologia" class="form-control form-control-sm" value="1 comprimido cada 12 horas por 15 días" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-cesfam btn-sm fw-bold">
+                        <i class="bi bi-send-fill me-1"></i>Inyectar Caso Ahora
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Confirmar Eliminar Escenario -->
+<div class="modal fade" id="modalEliminarEscenario" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-trash3 me-2"></i>Eliminar Escenario de Simulación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="formEliminarEscenario" action="">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="small mb-2">
+                        ¿Confirmas la eliminación del escenario <strong id="eliminarEscenarioNombre"></strong>?
+                    </p>
+                    <div class="alert alert-light border py-2 small mb-0 text-muted">
+                        <i class="bi bi-shield-check text-success me-1"></i>
+                        Solo se eliminará la agrupación del escenario. <strong>Los pacientes y recetas permanecerán intactos</strong> en la base de datos.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger btn-sm fw-bold">
+                        <i class="bi bi-trash3 me-1"></i>Sí, Eliminar Escenario
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.btn-restaurar-escenario').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('formRestaurarEscenario').action = this.dataset.url;
+            document.getElementById('restaurarEscenarioNombre').textContent = this.dataset.nombre;
+            document.getElementById('restaurarRecetasCount').textContent = this.dataset.recetas;
+        });
+    });
+
+    document.querySelectorAll('.btn-eliminar-escenario').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('formEliminarEscenario').action = this.dataset.url;
+            document.getElementById('eliminarEscenarioNombre').textContent = this.dataset.nombre;
+        });
+    });
+
+    document.querySelectorAll('.btn-inyectar-caso').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('formInyectarCaso').action = this.dataset.url;
+            document.getElementById('inyectarEscenarioNombre').textContent = this.dataset.nombre;
+        });
+    });
+});
+</script>
+{% endblock %}

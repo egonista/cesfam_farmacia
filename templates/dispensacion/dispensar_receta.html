@@ -1,41 +1,147 @@
 {% extends 'base.html' %}
 {% block title %}Dispensar Receta {{ receta.numero_receta }}{% endblock %}
 {% block content %}
-<div class="container-fluid py-4">
-    <h4><i class="bi bi-hand-index me-2"></i>Dispensar Receta {{ receta.numero_receta }}</h4>
-    <div class="alert alert-info py-2"><strong>Paciente:</strong> {{ receta.paciente.nombre_completo }} ({{ receta.paciente.rut }}) | <strong>Copago:</strong> $0 (Gratuito APS)</div>
+<div class="container-fluid py-3 no-print">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-hand-index-thumb text-danger me-2"></i>Entrega en Ventanilla — Receta {{ receta.numero_receta }}</h4>
+            <p class="text-muted small mb-0 mt-1">Verificación de paciente, selección automática del lote más próximo a vencer (FEFO) y generación de comprobante gratuito</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-dark btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#modalVerDocumentoReceta">
+                <i class="bi bi-file-earmark-medical-fill me-1"></i>Ver Receta Médica
+            </button>
+            <a href="{% url 'dispensacion:receta_detalle' receta.pk %}" class="btn btn-outline-dark btn-sm">
+                <i class="bi bi-pencil-square me-1"></i>Ficha de Receta
+            </a>
+            <span class="badge bg-success fs-6 px-3 py-2">$0 Copago (Gratuidad APS)</span>
+        </div>
+    </div>
+
+    <div class="alert alert-info py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <strong>Paciente:</strong> {{ receta.paciente.nombre_completo }} (<code>{{ receta.paciente.rut }}</code>)
+            | <strong>Previsión:</strong> {{ receta.paciente.get_prevision_display }}
+            | <strong>Médico:</strong> {{ receta.medico }}
+            | <strong>Diagnóstico:</strong> {{ receta.diagnostico }}
+        </div>
+        <div>
+            <span class="badge bg-dark">{{ receta.get_tipo_display }}</span>
+            {% if receta.es_controlada %}<span class="badge bg-danger ms-1">Sujeta a Control Legal</span>{% endif %}
+        </div>
+    </div>
+
     <form method="post">{% csrf_token %}
         {% for info in detalles_info %}
-        <div class="card mb-3">
-            <div class="card-header"><strong>{{ info.detalle.medicamento.nombre_generico }} {{ info.detalle.medicamento.concentracion }}</strong> — Pendiente: {{ info.cantidad_pendiente }} {{ info.detalle.medicamento.get_unidad_medida_display }}</div>
+        <div class="card mb-3 {% if info.detalle.medicamento.es_controlado %}border-danger{% endif %}">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ info.detalle.medicamento.nombre_generico }} {{ info.detalle.medicamento.concentracion }}</strong>
+                    — Saldo Pendiente: <span class="badge bg-dark">{{ info.cantidad_pendiente }} {{ info.detalle.medicamento.get_unidad_medida_display }}</span>
+                    {% if info.detalle.medicamento.es_controlado %}
+                    <span class="badge bg-danger ms-2"><i class="bi bi-shield-lock-fill me-1"></i>CONTROLADO (Psicotrópico / Estupefaciente)</span>
+                    {% endif %}
+                </div>
+                <small class="text-muted">Posología: {{ info.detalle.posologia }}</small>
+            </div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-4"><label class="form-label">Lote (FEFO)</label><select name="lote_{{ info.detalle.id }}" class="form-select">{% for l in info.lotes_fefo %}<option value="{{ l.pk }}" {% if l.pk == info.lote_sugerido.pk %}selected{% endif %}>{{ l.numero_lote }} - Stock: {{ l.cantidad_actual }} - Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }}{% if forloop.first %} ✓ FEFO{% endif %}</option>{% endfor %}</select></div>
-                    <div class="col-md-2"><label class="form-label">Cantidad</label><input type="number" name="cantidad_{{ info.detalle.id }}" class="form-control" min="0" max="{{ info.cantidad_pendiente }}" value="{{ info.cantidad_pendiente }}"></div>
-                    <div class="col-md-6"><label class="form-label">Justificación Override FEFO (si aplica)</label><input type="text" name="justificacion_{{ info.detalle.id }}" class="form-control" placeholder="Obligatoria si cambia el lote sugerido"></div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Lote Sugerido por Vencimiento (FEFO)</label>
+                        <select name="lote_{{ info.detalle.id }}" class="form-select">
+                            {% for l in info.lotes_fefo %}
+                            <option value="{{ l.pk }}" {% if l.pk == info.lote_sugerido.pk %}selected{% endif %}>
+                                {{ l.numero_lote }} ({{ l.ubicacion.nombre }}) - Stock: {{ l.cantidad_actual }} - Vence: {{ l.fecha_vencimiento|date:"d/m/Y" }}{% if forloop.first %} ✓ 1° FEFO{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label fw-bold">Cantidad a Entregar</label>
+                        <input type="number" name="cantidad_{{ info.detalle.id }}" class="form-control" min="0" max="{{ info.cantidad_pendiente }}" value="{{ info.cantidad_pendiente }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Justificación Técnica (Solo si cambia el lote sugerido)</label>
+                        <input type="text" name="justificacion_{{ info.detalle.id }}" class="form-control" placeholder="Obligatoria únicamente si selecciona un lote distinto al 1° sugerido">
+                    </div>
                 </div>
             </div>
         </div>
         {% endfor %}
+
+        {% if receta.es_controlada and receta.autorizada_qf %}
+        <div class="alert alert-success py-2 mb-3">
+            <i class="bi bi-shield-check me-2"></i>
+            <strong>Receta Controlada Autorizada por Q.F.:</strong> {{ receta.qf_autorizador.get_full_name|default:"Químico Farmacéutico" }} ({{ receta.fecha_autorizacion_qf|date:"d/m/Y H:i" }}). Habilitada para entrega en ventanilla.
+        </div>
+        {% elif receta.es_controlada and user.rol == 'quimico' %}
+        <div class="alert alert-warning py-2 mb-3">
+            <i class="bi bi-shield-lock-fill me-2"></i>
+            <strong>Despacho Directo por Químico Farmacéutico:</strong> Al confirmar la entrega, quedará firmada y asentada automáticamente en el Libro Oficial de Controlados.
+        </div>
+        {% endif %}
+
         <div class="card mb-3">
-            <div class="card-header"><i class="bi bi-person-badge me-2"></i>Retiro por Tercero Autorizado</div>
+            <div class="card-header"><i class="bi bi-person-badge me-2"></i>Retiro por Tercero Autorizado (Familiar o Cuidador)</div>
             <div class="card-body">
-                <div class="form-check mb-3"><input type="checkbox" name="retiro_tercero" class="form-check-input" id="id_retiro_tercero"><label class="form-check-label" for="id_retiro_tercero">El retiro lo realiza un tercero autorizado</label></div>
+                <div class="form-check mb-3">
+                    <input type="checkbox" name="retiro_tercero" class="form-check-input" id="id_retiro_tercero">
+                    <label class="form-check-label fw-bold" for="id_retiro_tercero">El retiro en ventanilla lo realiza un familiar o tercero autorizado (distinto al paciente titular)</label>
+                </div>
                 <div id="div-tercero-autorizado" style="display:none">
                     <div class="row g-3">
                         <div class="col-md-3"><label class="form-label">RUT Tercero</label><input type="text" name="rut_tercero" class="form-control" data-validate-rut data-required-if-tercero></div>
                         <div class="col-md-3"><label class="form-label">Nombres</label><input type="text" name="nombres_tercero" class="form-control" data-required-if-tercero></div>
                         <div class="col-md-3"><label class="form-label">Apellido Paterno</label><input type="text" name="ap_paterno_tercero" class="form-control" data-required-if-tercero></div>
                         <div class="col-md-3"><label class="form-label">Apellido Materno</label><input type="text" name="ap_materno_tercero" class="form-control"></div>
-                        <div class="col-md-3"><label class="form-label">Parentesco</label><input type="text" name="parentesco_tercero" class="form-control" data-required-if-tercero placeholder="Ej: Hijo/a, Esposo/a"></div>
-                        <div class="col-md-3"><label class="form-label">Teléfono</label><input type="text" name="telefono_tercero" class="form-control" data-required-if-tercero></div>
+                        <div class="col-md-3"><label class="form-label">Parentesco</label><input type="text" name="parentesco_tercero" class="form-control" data-required-if-tercero placeholder="Ej: Hijo/a, Cónyuge, Cuidador/a"></div>
+                        <div class="col-md-3"><label class="form-label">Teléfono de Contacto</label><input type="text" name="telefono_tercero" class="form-control" data-required-if-tercero></div>
                     </div>
                 </div>
             </div>
         </div>
-        <div class="mb-3"><label class="form-label">Observaciones</label><textarea name="observaciones" class="form-control" rows="2"></textarea></div>
-        <button type="submit" class="btn btn-dispensar btn-lg"><i class="bi bi-check2-circle me-2"></i>Confirmar Dispensación ($0 Copago)</button>
-        <a href="{% url 'dispensacion:receta_detalle' receta.pk %}" class="btn btn-outline-secondary ms-2">Cancelar</a>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">Observaciones de Entrega / Consejería Farmacéutica</label>
+            <textarea name="observaciones" class="form-control" rows="2" placeholder="Opcional: indicaciones adicionales entregadas al paciente o familiar en ventanilla..."></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-dispensar btn-lg shadow-sm">
+            <i class="bi bi-check2-circle me-2"></i>Confirmar Entrega y Emitir Comprobante ($0 Copago)
+        </button>
+        <button type="button" class="btn btn-outline-dark ms-2" data-bs-toggle="modal" data-bs-target="#modalVerDocumentoReceta">
+            <i class="bi bi-eye me-1"></i>Ver Receta Médica
+        </button>
+        <a href="{% url 'dispensacion:dispensar' %}" class="btn btn-outline-secondary ms-2">Volver a Ventanilla</a>
     </form>
 </div>
+
+<!-- Modal: Documento Oficial de Receta Médica -->
+<div class="modal fade no-print" id="modalVerDocumentoReceta" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-medical me-2"></i>Documento de Receta Médica — Folio {{ receta.numero_receta }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4" id="areaImpresionReceta">
+                {% include 'dispensacion/_documento_receta_formal.html' %}
+            </div>
+            <div class="modal-footer">
+                <a href="{% url 'dispensacion:receta_detalle' receta.pk %}" class="btn btn-outline-dark btn-sm me-auto">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Abrir Ficha Completa de la Receta
+                </a>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <a href="{% url 'dispensacion:receta_imprimir' receta.pk %}?autoprint=1" target="_blank" rel="noopener" class="btn btn-cesfam">
+                    <i class="bi bi-printer me-1"></i>Imprimir Receta
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Respaldo limpio para Ctrl+P directo desde Ventanilla -->
+<section class="print-only p-2">
+    {% include 'dispensacion/_documento_receta_formal.html' %}
+</section>
 {% endblock %}

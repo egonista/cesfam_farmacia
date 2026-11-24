@@ -1,0 +1,231 @@
+{% load static %}
+<div class="documento-receta-hoja">
+    <!-- Encabezado Institucional Profesional -->
+    <div class="d-flex flex-nowrap justify-content-between align-items-center gap-2 border-bottom pb-2 mb-3" style="border-bottom: 3px solid #C8102E !important;">
+        <div class="d-flex align-items-center gap-2" style="flex: 1 1 auto; min-width: 0;">
+            <img src="{% static 'img/inacap_logo.png' %}" alt="Logo INACAP" class="inacap-logo-img flex-shrink-0" style="height: 36px; width: auto; object-fit: contain;">
+            <div style="min-width: 0;">
+                <div class="text-uppercase fw-bolder text-danger lh-sm" style="font-size: 0.7rem; letter-spacing: 0.03em;">
+                    Farmacia Asistencial CESFAM · Red Atención Primaria
+                </div>
+                <h5 class="fw-bolder mb-0 text-dark lh-sm" style="letter-spacing: -0.02em; font-size: 1.08rem;">RECETA MÉDICA ASISTENCIAL</h5>
+                <div class="text-muted fw-semibold lh-sm" style="font-size: 0.75rem;">
+                    Docencia &amp; Simulación Clínica · Entrega Gratuita ($0 Copago)
+                </div>
+            </div>
+        </div>
+        <div class="border border-2 border-dark rounded px-2 py-1 text-end bg-white flex-shrink-0" style="min-width: 182px;">
+            <div class="text-uppercase text-muted fw-bold" style="font-size: 0.62rem; letter-spacing: 0.05em;">Folio Oficial</div>
+            <div class="fw-bolder text-dark lh-sm" style="font-size: 1rem;">N° {{ receta.numero_receta }}</div>
+            <div style="font-size: 0.74rem;">
+                <strong>Tipo:</strong>
+                <span class="{% if receta.es_controlada %}text-danger fw-bold{% endif %}">{{ receta.get_tipo_display }}</span>
+            </div>
+            <div style="font-size: 0.74rem;">
+                <strong>Estado:</strong>
+                {% if receta.esta_vencida %}
+                    <span class="badge bg-danger">Vencida</span>
+                {% elif receta.estado == 'total' %}
+                    <span class="badge bg-success">{{ receta.get_estado_display }}</span>
+                {% elif receta.estado == 'anulada' %}
+                    <span class="badge bg-secondary">{{ receta.get_estado_display }}</span>
+                {% else %}
+                    <span class="badge bg-dark">{{ receta.get_estado_display }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Datos del Paciente y Datos de Prescripción -->
+    <div class="row g-2 mb-3">
+        <div class="col-6">
+            <div class="p-2 px-3 border rounded bg-light h-100" style="font-size: 0.82rem;">
+                <div class="fw-bolder text-uppercase text-danger mb-1" style="font-size: 0.7rem; letter-spacing: 0.04em;">
+                    Datos del Paciente Beneficiario
+                </div>
+                <div class="fw-bold text-dark">{{ receta.paciente.nombre_completo }}</div>
+                <div>
+                    <strong>RUT:</strong> <code>{{ receta.paciente.rut }}</code>
+                    {% if edad_paciente != None %} | <strong>Edad:</strong> {{ edad_paciente }} años{% endif %}
+                </div>
+                <div>
+                    <strong>F. Nacimiento:</strong> {{ receta.paciente.fecha_nacimiento|date:"d/m/Y" }}
+                </div>
+                <div>
+                    <strong>Previsión / Programa:</strong> {{ receta.paciente.get_prevision_display }}
+                    {% if receta.paciente.cronico %} · <span class="fw-semibold">Crónico PSCV</span>{% endif %}
+                    {% for ig in inscripciones_ges %}
+                        · <span class="fw-semibold text-primary">GES {{ ig.patologia.codigo }}</span>
+                    {% endfor %}
+                </div>
+                {% if tercero_conocido %}
+                <div>
+                    <strong>Tercero Autorizado:</strong> {{ tercero_conocido.nombre_completo }} ({{ tercero_conocido.parentesco }})
+                </div>
+                {% endif %}
+                <div class="text-success fw-semibold">Beneficio Asistencial: $0 Copago (APS)</div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="p-2 px-3 border rounded bg-light h-100" style="font-size: 0.82rem;">
+                <div class="fw-bolder text-uppercase text-danger mb-1" style="font-size: 0.7rem; letter-spacing: 0.04em;">
+                    Datos de Prescripción y Vigencia
+                </div>
+                <div>
+                    <strong>Médico Prescriptor:</strong> Dr(a). {{ receta.medico.nombres }} {{ receta.medico.apellido_paterno }} {{ receta.medico.apellido_materno }}
+                </div>
+                <div><strong>Registro SIS:</strong> {{ receta.medico.registro_sis }}</div>
+                <div>
+                    <strong>Fecha Emisión:</strong> {{ receta.fecha_emision|date:"d/m/Y" }}
+                    | <strong>Vigencia Hasta:</strong> {{ receta.fecha_vencimiento|date:"d/m/Y" }}
+                </div>
+                <div><strong>Diagnóstico:</strong> <span class="fw-semibold text-dark">{{ receta.diagnostico }}</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sello de Validación Químico Farmacéutico (si es controlada o retenida) -->
+    {% if receta.es_controlada %}
+        {% if receta.autorizada_qf %}
+        <div class="p-2 px-3 mb-3 border border-success rounded" style="background-color: #ECFDF5; color: #065F46; font-size: 0.82rem;">
+            <i class="bi bi-shield-fill-check me-1"></i>
+            <strong>Sello de Validación Químico Farmacéutico:</strong>
+            Autorizada por Q.F. {{ receta.qf_autorizador.get_full_name|default:"Químico Farmacéutico" }} — {{ receta.fecha_autorizacion_qf|date:"d/m/Y H:i" }}
+        </div>
+        {% else %}
+        <div class="p-2 px-3 mb-3 border border-warning rounded" style="background-color: #FFFBEB; color: #92400E; font-size: 0.82rem;">
+            <i class="bi bi-shield-exclamation me-1"></i>
+            <strong>Control Legal (Receta Retenida / Controlada):</strong>
+            Requiere validación y firma del Químico Farmacéutico previo a su entrega en ventanilla.
+        </div>
+        {% endif %}
+    {% endif %}
+
+    <!-- Tabla Formal Rp. Prescripción Farmacológica -->
+    <div class="fw-bolder text-uppercase text-danger border-bottom pb-1 mb-2" style="font-size: 0.78rem; letter-spacing: 0.03em;">
+        <i class="bi bi-prescription2 me-1"></i>Rp. Prescripción Farmacológica
+    </div>
+    <div class="table-responsive mb-3">
+    <table class="table table-sm table-bordered align-middle mb-0" style="font-size: 0.76rem;">
+        <thead class="table-light">
+            <tr>
+                <th>Medicamento (DCI)</th>
+                <th>Forma</th>
+                <th>Vía Adm.</th>
+                <th>Posología e Indicaciones</th>
+                <th class="text-center">Duración</th>
+                <th class="text-center">Prescrita</th>
+                <th class="text-center">Entregada</th>
+                <th class="text-center">Pendiente</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in detalles_con_lotes %}
+            <tr>
+                <td>
+                    <strong>{{ item.detalle.medicamento.nombre_generico }} {{ item.detalle.medicamento.concentracion }}</strong>
+                    <div class="text-muted" style="font-size: 0.72rem;">{{ item.detalle.medicamento.codigo }}</div>
+                    {% if item.detalle.medicamento.es_controlado %}
+                    <span class="badge bg-danger" style="font-size: 0.65rem;">CONTROLADO</span>
+                    {% endif %}
+                </td>
+                <td>{{ item.detalle.medicamento.forma_farmaceutica }}</td>
+                <td>{{ item.via_administracion }}</td>
+                <td>{{ item.detalle.posologia }}</td>
+                <td class="text-center text-nowrap">{{ item.detalle.dias_tratamiento }} días</td>
+                <td class="text-center fw-bold">{{ item.detalle.cantidad_prescrita }}</td>
+                <td class="text-center text-success fw-bold">{{ item.detalle.cantidad_dispensada }}</td>
+                <td class="text-center text-danger fw-bold">{{ item.detalle.cantidad_pendiente }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8" class="text-center text-muted py-2">Sin medicamentos prescritos registrados en esta receta.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    {% if receta.observaciones %}
+    <div class="p-2 px-3 mb-3 border rounded bg-light" style="font-size: 0.78rem;">
+        <strong>Observaciones Clínicas / Trazabilidad:</strong> {{ receta.observaciones }}
+    </div>
+    {% endif %}
+
+    {% if entregas_receta %}
+    <div class="mb-3" style="font-size: 0.76rem;">
+        <div class="fw-bolder text-uppercase text-muted mb-1" style="font-size: 0.7rem;">Historial de Entregas y Lotes FEFO</div>
+        <table class="table table-bordered table-sm mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Fecha / Hora</th>
+                    <th>Medicamento</th>
+                    <th class="text-center">Cant.</th>
+                    <th>Lote FEFO</th>
+                    <th>Quién Retira</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ent in entregas_receta %}
+                <tr>
+                    <td class="text-nowrap">{{ ent.dispensacion.fecha|date:"d/m/Y H:i" }}</td>
+                    <td>{{ ent.detalle_receta.medicamento.nombre_generico }} {{ ent.detalle_receta.medicamento.concentracion }}</td>
+                    <td class="text-center fw-bold">{{ ent.cantidad }}</td>
+                    <td class="text-nowrap">{{ ent.lote.numero_lote }}</td>
+                    <td>
+                        {% if ent.dispensacion.retiro_tercero and ent.dispensacion.tercero_autorizado %}
+                        {{ ent.dispensacion.tercero_autorizado.nombre_completo }} ({{ ent.dispensacion.tercero_autorizado.rut }} · {{ ent.dispensacion.tercero_autorizado.parentesco }})
+                        {% else %}
+                        {{ receta.paciente.nombre_completo }} ({{ receta.paciente.rut }} · Titular)
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Bloque de Firmas al Pie (3 Firmas Formales) -->
+    <div class="row g-3 mt-4 pt-3 documento-firmas-bloque" style="page-break-inside: avoid; break-inside: avoid;">
+        <div class="col-4 text-center">
+            <div class="border-top border-dark mx-auto pt-2" style="font-size: 0.75rem; max-width: 220px;">
+                <div class="fw-bold text-dark">Firma y Timbre Médico Prescriptor</div>
+                <div>Dr(a). {{ receta.medico.nombres }} {{ receta.medico.apellido_paterno }} {{ receta.medico.apellido_materno }}</div>
+                <div class="text-muted">Reg. SIS: {{ receta.medico.registro_sis }}</div>
+            </div>
+        </div>
+        <div class="col-4 text-center">
+            <div class="border-top border-dark mx-auto pt-2" style="font-size: 0.75rem; max-width: 220px;">
+                <div class="fw-bold text-dark">Firma Quien Dispensa</div>
+                {% if ultima_dispensacion %}
+                <div>{{ ultima_dispensacion.usuario_dispensador.get_full_name }}</div>
+                <div class="text-muted">{{ ultima_dispensacion.usuario_dispensador.get_rol_display }}</div>
+                {% else %}
+                <div>Funcionario Farmacia CESFAM</div>
+                <div class="text-muted">Timbre / Firma Unidad Farmacia</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-4 text-center">
+            <div class="border-top border-dark mx-auto pt-2" style="font-size: 0.75rem; max-width: 230px;">
+                <div class="fw-bold text-dark">Firma Quien Retira (Nombre, RUT y Parentesco)</div>
+                {% if ultima_dispensacion and ultima_dispensacion.retiro_tercero and ultima_dispensacion.tercero_autorizado %}
+                <div>{{ ultima_dispensacion.tercero_autorizado.nombre_completo }}</div>
+                <div class="text-muted">RUT: {{ ultima_dispensacion.tercero_autorizado.rut }} · {{ ultima_dispensacion.tercero_autorizado.parentesco }}</div>
+                {% elif ultima_dispensacion %}
+                <div>{{ receta.paciente.nombre_completo }}</div>
+                <div class="text-muted">RUT: {{ receta.paciente.rut }} · Paciente Titular</div>
+                {% else %}
+                <div>Nombre: _________________________</div>
+                <div class="text-muted">RUT: ____________ Parentesco: ________</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Pie de Página Discreto -->
+    <div class="border-top mt-4 pt-2 text-center text-muted" style="font-size: 0.7rem;">
+        Documento generado para uso docente y simulación académica INACAP — Sin validez legal
+    </div>
+</div>

@@ -13,15 +13,22 @@ from django.db.models import Count, Sum
 
 from dispensacion.models import Dispensacion, Receta
 from farmacia.models import Medicamento, Lote, CategoriaMedicamento
+from core.decorators import rol_requerido
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico',
+    motivo='Los reportes gerenciales y normativos están reservados al Administrador y al Químico Farmacéutico.'
+)
 def index(request):
     """Dashboard gerencial con KPIs y reportes."""
     return render(request, 'reportes/index.html')
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico',
+    motivo='La exportación global de reportes PDF está reservada al Administrador y al Químico Farmacéutico.'
+)
 def exportar_pdf(request):
     """Exportar reporte a PDF."""
     from reportlab.lib import colors
@@ -68,7 +75,10 @@ def exportar_pdf(request):
     return response
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico',
+    motivo='La exportación global de planillas Excel está reservada al Administrador y al Químico Farmacéutico.'
+)
 def exportar_excel(request):
     """Exportar reporte a Excel (XLSX)."""
     from openpyxl import Workbook

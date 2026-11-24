@@ -2,11 +2,46 @@
 {% block title %}Pacientes{% endblock %}
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h4><i class="bi bi-people me-2"></i>Pacientes</h4>
-        <a href="{% url 'core:paciente_crear' %}" class="btn btn-cesfam"><i class="bi bi-plus-circle me-1"></i>Nuevo Paciente</a>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+        <div>
+            <h4 class="fw-bolder mb-0"><i class="bi bi-people text-danger me-2"></i>Pacientes y Programas GES</h4>
+            <p class="text-muted small mb-0 mt-1">
+                {% if escenario_activo %}
+                Beneficiarios activos en la simulación actual (<strong>{{ escenario_activo.nombre }}</strong>) y sus patologías garantizadas
+                {% else %}
+                Padrón de beneficiarios FONASA/PRAIS adscritos y sus patologías garantizadas activas
+                {% endif %}
+            </p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            {% if user.rol == 'admin' %}
+            <a href="{% url 'core:banco_pacientes' %}" class="btn btn-outline-dark btn-sm">
+                <i class="bi bi-folder2-open me-1"></i>Banco de Pacientes
+            </a>
+            {% endif %}
+            {% if user.rol == 'admin' or user.rol == 'quimico' %}
+            <a href="{% url 'core:paciente_crear' %}" class="btn btn-cesfam btn-sm">
+                <i class="bi bi-plus-circle me-1"></i>Nuevo Paciente
+            </a>
+            {% endif %}
+        </div>
     </div>
-    <div class="card">
+
+    <!-- Pestañas contextuales del módulo Pacientes & Programas GES -->
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <a class="nav-link active fw-bold text-dark" href="{% url 'core:paciente_list' %}">
+                <i class="bi bi-people text-danger me-1"></i>Pacientes
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link text-muted fw-semibold" href="{% url 'ges:inscripcion_list' %}">
+                <i class="bi bi-shield-check me-1"></i>Cuotas GES
+            </a>
+        </li>
+    </ul>
+
+    <div class="card shadow-sm border-0">
         <div class="card-body">
             <form method="get" class="row g-2 mb-3">
                 <div class="col-md-8">
@@ -17,21 +52,50 @@
                 </div>
             </form>
             <div class="table-responsive">
-                <table class="table table-cesfam">
-                    <thead><tr><th>RUT</th><th>Apellido Paterno</th><th>Apellido Materno</th><th>Nombres</th><th>Previsión</th><th>Crónico</th><th>Acciones</th></tr></thead>
+                <table class="table table-cesfam align-middle">
+                    <thead>
+                        <tr>
+                            <th>RUT</th>
+                            <th>Apellido Paterno</th>
+                            <th>Apellido Materno</th>
+                            <th>Nombres</th>
+                            <th>Previsión</th>
+                            <th>Crónico</th>
+                            <th>Programa GES / Patología</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
                     <tbody>
                     {% for p in pacientes %}
                     <tr>
-                        <td><strong>{{ p.rut }}</strong></td>
+                        <td><strong><code>{{ p.rut }}</code></strong></td>
                         <td>{{ p.apellido_paterno }}</td>
                         <td>{{ p.apellido_materno }}</td>
                         <td>{{ p.nombres }}</td>
                         <td><span class="badge bg-primary">{{ p.get_prevision_display }}</span></td>
                         <td>{% if p.cronico %}<span class="badge bg-warning text-dark">Crónico</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
+                        <td>
+                            {% for insc in p.programas_ges_activos %}
+                            <span class="badge bg-success mb-1" title="{{ insc.patologia.nombre }}">
+                                <i class="bi bi-shield-check me-1"></i>{{ insc.patologia.codigo }}: {{ insc.patologia.nombre|truncatechars:28 }}
+                            </span><br>
+                            {% empty %}
+                            <span class="badge bg-light text-muted border">Sin programa</span>
+                            {% endfor %}
+                        </td>
                         <td><a href="{% url 'core:paciente_detalle' p.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a></td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="7" class="text-center text-muted">No se encontraron pacientes.</td></tr>
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-4">
+                            {% if escenario_sin_pacientes and not query %}
+                            <i class="bi bi-easel2 fs-4 d-block mb-1 text-secondary"></i>
+                            Este escenario aún no tiene pacientes asignados.
+                            {% else %}
+                            No se encontraron pacientes{% if query %} para "{{ query }}"{% endif %}.
+                            {% endif %}
+                        </td>
+                    </tr>
                     {% endfor %}
                     </tbody>
                 </table>

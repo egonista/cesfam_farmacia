@@ -16,12 +16,19 @@ from .models import (
     OrdenAbastecimiento, DetalleOrdenAbastecimiento
 )
 from core.utils import registrar_auditoria
+from core.decorators import rol_requerido, denegar_acceso
 
 
-@login_required
+@rol_requerido('admin', 'quimico', 'tecnico', 'clinico')
 def medicamento_list(request):
     """Lista de medicamentos con búsqueda, filtros y creación (RF-03)."""
-    if request.method == 'POST' and request.user.rol in ('admin', 'quimico'):
+    if request.method == 'POST':
+        if request.user.rol not in ('admin', 'quimico'):
+            return denegar_acceso(
+                request,
+                motivo='Solo el Administrador y el Químico Farmacéutico pueden incorporar nuevos medicamentos o modificar el catálogo base.',
+                roles_autorizados=('admin', 'quimico')
+            )
         try:
             cat = CategoriaMedicamento.objects.get(pk=request.POST.get('categoria'))
             es_ctrl = request.POST.get('es_controlado') == 'on' or cat.es_controlado
@@ -79,13 +86,19 @@ def medicamento_list(request):
     })
 
 
-@login_required
+@rol_requerido('admin', 'quimico', 'tecnico', 'clinico')
 @transaction.atomic
 def medicamento_detalle(request, pk):
     """Detalle de medicamento con lotes ordenados FEFO y edición de parámetros / ajuste de lotes."""
     medicamento = get_object_or_404(Medicamento, pk=pk)
 
-    if request.method == 'POST' and request.user.rol in ('admin', 'quimico', 'tecnico'):
+    if request.method == 'POST':
+        if request.user.rol not in ('admin', 'quimico'):
+            return denegar_acceso(
+                request,
+                motivo='Solo el Administrador y el Químico Farmacéutico pueden editar parámetros técnicos o realizar ajustes de arqueo sobre lotes.',
+                roles_autorizados=('admin', 'quimico')
+            )
         accion = request.POST.get('accion')
         if accion == 'editar_medicamento':
             try:
@@ -147,6 +160,7 @@ def medicamento_detalle(request, pk):
 
     lotes_fefo = medicamento.lotes_fefo()
     lotes_todos = medicamento.lotes.all().order_by('fecha_vencimiento')
+    lote_bodega_sugerido = lotes_fefo.filter(ubicacion__tipo=Ubicacion.TipoUbicacion.BODEGA).first()
     movimientos = MovimientoStock.objects.filter(
         lote__medicamento=medicamento
     ).order_by('-fecha')[:30]
@@ -156,21 +170,31 @@ def medicamento_detalle(request, pk):
         'medicamento': medicamento,
         'lotes_fefo': lotes_fefo,
         'lotes_todos': lotes_todos,
+        'lote_bodega_sugerido': lote_bodega_sugerido,
         'movimientos': movimientos,
         'categorias': categorias,
     })
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El Personal Clínico solo tiene acceso de consulta al catálogo de medicamentos y no puede gestionar lotes internos de bodega.'
+)
 def lote_list(request):
-    """Lista de lotes con filtros y ordenamiento FEFO."""
+    """Lista de lotes con resumen operativo, filtros, ordenamiento FEFO y visualización de cuarentena."""
     query = request.GET.get('q', '')
     ubicacion_id = request.GET.get('ubicacion', '')
     alerta = request.GET.get('alerta', '')
+    hoy = date.today()
 
-    lotes = Lote.objects.filter(activo=True).select_related(
-        'medicamento', 'ubicacion'
-    ).order_by('fecha_vencimiento')
+    if alerta == 'cuarentena':
+        lotes = Lote.objects.filter(en_cuarentena=True).select_related(
+            'medicamento', 'ubicacion', 'usuario_cuarentena'
+        ).order_by('-fecha_cuarentena')
+    else:
+        lotes = Lote.objects.filter(activo=True, en_cuarentena=False).select_related(
+            'medicamento', 'ubicacion'
+        ).order_by('fecha_vencimiento')
 
     if query:
         lotes = lotes.filter(
@@ -179,8 +203,7 @@ def lote_list(request):
         )
     if ubicacion_id:
         lotes = lotes.filter(ubicacion_id=ubicacion_id)
-    if alerta:
-        hoy = date.today()
+    if alerta and alerta != 'cuarentena':
         if alerta == 'vencido':
             lotes = lotes.filter(fecha_vencimiento__lte=hoy)
         elif alerta == '30':
@@ -190,6 +213,30 @@ def lote_list(request):
         elif alerta == '90':
             lotes = lotes.filter(fecha_vencimiento__gt=hoy + timedelta(days=60), fecha_vencimiento__lte=hoy + timedelta(days=90))
 
+    # Contadores resumen sobre inventario activo fuera de cuarentena
+    lotes_activos_base = Lote.objects.filter(activo=True, en_cuarentena=False)
+    total_unidades_bodega = (
+        lotes_activos_base.filter(
+            ubicacion__tipo=Ubicacion.TipoUbicacion.BODEGA,
+            fecha_vencimiento__gt=hoy,
+        ).aggregate(total=Sum('cantidad_actual'))['total'] or 0
+    )
+    total_unidades_vitrina = (
+        lotes_activos_base.filter(
+            ubicacion__tipo=Ubicacion.TipoUbicacion.VITRINA,
+            fecha_vencimiento__gt=hoy,
+        ).aggregate(total=Sum('cantidad_actual'))['total'] or 0
+    )
+    lotes_criticos_30 = lotes_activos_base.filter(
+        cantidad_actual__gt=0,
+        fecha_vencimiento__gt=hoy,
+        fecha_vencimiento__lte=hoy + timedelta(days=30),
+    ).count()
+    lotes_vencidos_pendientes = lotes_activos_base.filter(
+        cantidad_actual__gt=0,
+        fecha_vencimiento__lte=hoy,
+    ).count()
+
     ubicaciones = Ubicacion.objects.filter(activa=True)
 
     return render(request, 'farmacia/lote_list.html', {
@@ -198,60 +245,231 @@ def lote_list(request):
         'query': query,
         'ubicacion_id': ubicacion_id,
         'alerta': alerta,
+        'total_unidades_bodega': total_unidades_bodega,
+        'total_unidades_vitrina': total_unidades_vitrina,
+        'lotes_criticos_30': lotes_criticos_30,
+        'lotes_vencidos_pendientes': lotes_vencidos_pendientes,
     })
 
 
-@login_required
+@rol_requerido(
+    'quimico',
+    motivo='Solo el Químico Farmacéutico está autorizado para retirar lotes vencidos de bodega/vitrina y darlos de baja en Cuarentena.'
+)
+@transaction.atomic
+def lote_cuarentena(request, pk):
+    """Retira un lote vencido de Vitrina/Bodega y lo pasa a estado Cuarentena / Baja por Vencimiento."""
+    if request.method != 'POST':
+        return redirect('farmacia:lote_list')
+
+    lote = get_object_or_404(Lote.objects.select_for_update().select_related('medicamento', 'ubicacion'), pk=pk)
+    if lote.en_cuarentena or not lote.activo:
+        messages.warning(request, f'El lote {lote.numero_lote} ya se encuentra en Cuarentena / Dado de Baja.')
+        return redirect('farmacia:lote_list')
+
+    motivo_ingresado = request.POST.get('motivo', '').strip()
+    motivo_final = motivo_ingresado or (
+        f'Baja por vencimiento ({lote.fecha_vencimiento.strftime("%d/%m/%Y")}) — Retirado de {lote.ubicacion.nombre}'
+    )
+
+    stock_retirado = lote.cantidad_actual
+    ubic_origen = lote.ubicacion
+
+    lote.en_cuarentena = True
+    lote.activo = False
+    lote.cantidad_actual = 0
+    lote.motivo_cuarentena = motivo_final
+    lote.fecha_cuarentena = timezone.now()
+    lote.usuario_cuarentena = request.user
+    lote.save()
+
+    MovimientoStock.objects.create(
+        lote=lote,
+        tipo=MovimientoStock.TipoMovimiento.EGRESO_MERMA,
+        cantidad=-stock_retirado,
+        cantidad_anterior=stock_retirado,
+        cantidad_posterior=0,
+        motivo=f'Cuarentena / Baja por Vencimiento: {motivo_final}',
+        usuario=request.user,
+        ubicacion_origen=ubic_origen,
+    )
+
+    if lote.medicamento.es_controlado and stock_retirado > 0:
+        from controlados.models import LibroControlados
+        LibroControlados.objects.create(
+            folio=LibroControlados.siguiente_folio(),
+            medicamento=lote.medicamento,
+            lote=lote,
+            tipo_movimiento=LibroControlados.TipoMovimiento.MERMA,
+            cantidad=stock_retirado,
+            saldo_anterior=stock_retirado,
+            saldo_posterior=0,
+            quimico_responsable=request.user,
+            verificacion_2fa=True,
+            observaciones=f'Baja a Cuarentena: {motivo_final}',
+        )
+
+    registrar_auditoria(
+        request.user,
+        'Retiro y Baja a Cuarentena de Lote Vencido',
+        f'Lote {lote.numero_lote} ({lote.medicamento.nombre_generico})',
+        valores_anteriores={
+            'ubicacion': ubic_origen.nombre,
+            'stock_retirado': stock_retirado,
+            'estado': 'Vencido Activo',
+        },
+        valores_nuevos={
+            'estado': 'Cuarentena / Baja por Vencimiento',
+            'stock_actual': 0,
+            'motivo': motivo_final,
+        }
+    )
+
+    messages.success(
+        request,
+        f'Lote {lote.numero_lote} ({stock_retirado} unid.) retirado de {ubic_origen.nombre} y pasado a Cuarentena / Baja por Vencimiento.'
+    )
+    return redirect('farmacia:lote_list')
+
+
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El Personal Clínico no está autorizado para recepcionar ni ingresar lotes al inventario de farmacia.'
+)
+@transaction.atomic
 def lote_crear(request):
-    """Crear un nuevo lote de medicamento."""
+    """Registrar un nuevo lote de medicamento con validaciones estrictas FEFO y control ISP."""
+    selected_med_id = str(request.POST.get('medicamento') or request.GET.get('medicamento') or '').strip()
+
+    if request.method == 'GET' and selected_med_id.isdigit() and request.user.rol == 'tecnico':
+        med_pre = Medicamento.objects.filter(pk=int(selected_med_id)).first()
+        if med_pre and med_pre.es_controlado:
+            return denegar_acceso(
+                request,
+                motivo='El ingreso manual de medicamentos controlados (estupefacientes/psicotrópicos ISP) corresponde exclusivamente al Químico Farmacéutico.',
+                roles_autorizados=('quimico', 'admin')
+            )
+
     if request.method == 'POST':
         try:
-            medicamento = Medicamento.objects.get(pk=request.POST.get('medicamento'))
-            ubicacion = Ubicacion.objects.get(pk=request.POST.get('ubicacion'))
-            cantidad = int(request.POST.get('cantidad_inicial', 0))
+            medicamento = get_object_or_404(Medicamento, pk=request.POST.get('medicamento'))
+            if request.user.rol == 'tecnico' and medicamento.es_controlado:
+                return denegar_acceso(
+                    request,
+                    motivo='El ingreso manual de medicamentos controlados (estupefacientes/psicotrópicos ISP) corresponde exclusivamente al Químico Farmacéutico.',
+                    roles_autorizados=('quimico', 'admin')
+                )
+
+            ubicacion = get_object_or_404(Ubicacion, pk=request.POST.get('ubicacion'))
+            numero_lote = request.POST.get('numero_lote', '').strip()
+            fecha_fab_str = request.POST.get('fecha_fabricacion', '').strip()
+            fecha_venc_str = request.POST.get('fecha_vencimiento', '').strip()
+            cantidad = int(request.POST.get('cantidad_inicial', 0) or 0)
+            motivo_ingreso = request.POST.get('motivo_ingreso', '').strip()
+
+            if not numero_lote:
+                raise ValueError('Debe indicar el número de lote del fabricante.')
+            if cantidad <= 0:
+                raise ValueError('La cantidad inicial del lote debe ser mayor a cero.')
+            if not fecha_fab_str or not fecha_venc_str:
+                raise ValueError('Debe ingresar la fecha de fabricación y la fecha de vencimiento.')
+
+            fecha_fab = date.fromisoformat(fecha_fab_str)
+            fecha_venc = date.fromisoformat(fecha_venc_str)
+            hoy = date.today()
+
+            if fecha_venc <= fecha_fab:
+                raise ValueError('La fecha de vencimiento debe ser estrictamente posterior a la fecha de fabricación.')
+            if fecha_venc < hoy and ubicacion.tipo == Ubicacion.TipoUbicacion.VITRINA:
+                raise ValueError(
+                    f'No se puede registrar un lote ya vencido ({fecha_venc.strftime("%d/%m/%Y")}) en {ubicacion.nombre}. '
+                    f'Los productos vencidos solo pueden ingresarse en Bodega para cuarentena o verificación técnica.'
+                )
+            if not motivo_ingreso:
+                raise ValueError('Debe indicar el Motivo o N° de Guía / Remesa de respaldo para la trazabilidad.')
+            if Lote.objects.filter(
+                medicamento=medicamento,
+                numero_lote__iexact=numero_lote,
+                ubicacion=ubicacion,
+            ).exists():
+                raise ValueError(
+                    f'El lote "{numero_lote}" ya existe para {medicamento.nombre_generico} en {ubicacion.nombre}. '
+                    f'No se permite registrar un lote duplicado en la misma ubicación.'
+                )
 
             lote = Lote.objects.create(
                 medicamento=medicamento,
-                numero_lote=request.POST.get('numero_lote'),
-                fecha_fabricacion=request.POST.get('fecha_fabricacion'),
-                fecha_vencimiento=request.POST.get('fecha_vencimiento'),
+                numero_lote=numero_lote,
+                fecha_fabricacion=fecha_fab,
+                fecha_vencimiento=fecha_venc,
                 cantidad_inicial=cantidad,
                 cantidad_actual=cantidad,
                 ubicacion=ubicacion,
-                proveedor=request.POST.get('proveedor', ''),
+                proveedor=request.POST.get('proveedor', '').strip(),
             )
 
-            # Registrar movimiento de ingreso
             MovimientoStock.objects.create(
                 lote=lote,
                 tipo=MovimientoStock.TipoMovimiento.INGRESO,
                 cantidad=cantidad,
                 cantidad_anterior=0,
                 cantidad_posterior=cantidad,
-                motivo=f'Ingreso inicial de lote {lote.numero_lote}',
+                motivo=f'Ingreso inicial / Remesa — Lote {lote.numero_lote}: {motivo_ingreso}',
                 usuario=request.user,
                 ubicacion_destino=ubicacion,
             )
 
+            if medicamento.es_controlado and request.user.rol == 'quimico':
+                from controlados.models import LibroControlados
+                LibroControlados.objects.create(
+                    folio=LibroControlados.siguiente_folio(),
+                    medicamento=medicamento,
+                    lote=lote,
+                    tipo_movimiento=LibroControlados.TipoMovimiento.INGRESO,
+                    cantidad=cantidad,
+                    saldo_anterior=0,
+                    saldo_posterior=cantidad,
+                    quimico_responsable=request.user,
+                    verificacion_2fa=True,
+                    observaciones=f'Ingreso manual Q.F. lote {lote.numero_lote} — {motivo_ingreso}',
+                )
+
             registrar_auditoria(
-                request.user, 'Ingreso de lote', f'Lote {lote.numero_lote}',
-                valores_nuevos={'medicamento': str(medicamento), 'cantidad': cantidad}
+                request.user,
+                'Ingreso de lote manual',
+                f'Lote {lote.numero_lote}',
+                valores_nuevos={
+                    'medicamento': str(medicamento),
+                    'cantidad': cantidad,
+                    'ubicacion': ubicacion.nombre,
+                    'motivo_guia': motivo_ingreso,
+                }
             )
 
-            messages.success(request, f'Lote {lote.numero_lote} creado exitosamente.')
+            messages.success(request, f'Lote {lote.numero_lote} registrado correctamente.')
             return redirect('farmacia:lote_list')
+        except ValueError as ve:
+            messages.error(request, str(ve))
         except Exception as e:
-            messages.error(request, f'Error al crear lote: {e}')
+            messages.error(request, f'No fue posible registrar el lote: {e}')
 
     medicamentos = Medicamento.objects.filter(activo=True)
+    if request.user.rol == 'tecnico':
+        medicamentos = medicamentos.filter(es_controlado=False)
     ubicaciones = Ubicacion.objects.filter(activa=True)
     return render(request, 'farmacia/lote_form.html', {
         'medicamentos': medicamentos,
         'ubicaciones': ubicaciones,
+        'selected_med_id': selected_med_id,
+        'form_data': request.POST if request.method == 'POST' else {},
+        'hoy_iso': date.today().isoformat(),
     })
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El Personal Clínico no está autorizado para consultar el kardex interno de movimientos de bodega.'
+)
 def movimiento_list(request):
     """Historial de movimientos de stock."""
     movimientos = MovimientoStock.objects.all().select_related(
@@ -262,107 +480,143 @@ def movimiento_list(request):
     })
 
 
-@login_required
+@rol_requerido(
+    'quimico', 'tecnico',
+    motivo='Los traslados operativos entre Bodega y Vitrina solo pueden ser ejecutados por el Técnico en Farmacia o el Químico Farmacéutico.'
+)
+@transaction.atomic
 def traspaso(request):
-    """Traspaso de stock entre bodega y vitrina (FEFO)."""
+    """Traspaso transaccional de stock entre Bodega Central y Vitrina de Dispensación."""
     if request.method == 'POST':
         try:
-            lote = Lote.objects.get(pk=request.POST.get('lote'))
-            cantidad = int(request.POST.get('cantidad', 0))
-            destino = Ubicacion.objects.get(pk=request.POST.get('destino'))
+            with transaction.atomic():
+                lote = Lote.objects.select_for_update().select_related('medicamento', 'ubicacion').get(
+                    pk=request.POST.get('lote')
+                )
+                cantidad = int(request.POST.get('cantidad', 0) or 0)
+                destino = Ubicacion.objects.get(pk=request.POST.get('destino'))
 
-            if cantidad > lote.cantidad_actual:
-                messages.error(request, 'La cantidad a traspasar excede el stock disponible.')
-                return redirect('farmacia:traspaso')
+                if cantidad <= 0:
+                    raise ValueError('La cantidad a traspasar debe ser mayor a cero.')
+                if lote.ubicacion_id == destino.id:
+                    raise ValueError('La ubicación de destino debe ser distinta a la ubicación de origen.')
+                if cantidad > lote.cantidad_actual:
+                    raise ValueError(f'La cantidad indicada ({cantidad}) supera el stock disponible en el lote ({lote.cantidad_actual}).')
+                if lote.esta_vencido:
+                    raise ValueError('No se puede traspasar un lote vencido.')
 
-            if lote.esta_vencido:
-                messages.error(request, 'No se puede traspasar un lote vencido.')
-                return redirect('farmacia:traspaso')
+                origen = lote.ubicacion
+                cantidad_anterior = lote.cantidad_actual
 
-            origen = lote.ubicacion
-            cantidad_anterior = lote.cantidad_actual
+                lote.cantidad_actual -= cantidad
+                lote.save()
 
-            # Descontar del lote origen
-            lote.cantidad_actual -= cantidad
-            lote.save()
+                lote_destino, created = Lote.objects.select_for_update().get_or_create(
+                    medicamento=lote.medicamento,
+                    numero_lote=lote.numero_lote,
+                    ubicacion=destino,
+                    defaults={
+                        'fecha_fabricacion': lote.fecha_fabricacion,
+                        'fecha_vencimiento': lote.fecha_vencimiento,
+                        'cantidad_inicial': cantidad,
+                        'cantidad_actual': cantidad,
+                        'proveedor': lote.proveedor,
+                    }
+                )
+                if not created:
+                    lote_destino.cantidad_actual += cantidad
+                    lote_destino.save()
 
-            # Crear o actualizar lote en destino
-            lote_destino, created = Lote.objects.get_or_create(
-                medicamento=lote.medicamento,
-                numero_lote=lote.numero_lote,
-                ubicacion=destino,
-                defaults={
-                    'fecha_fabricacion': lote.fecha_fabricacion,
-                    'fecha_vencimiento': lote.fecha_vencimiento,
-                    'cantidad_inicial': cantidad,
-                    'cantidad_actual': cantidad,
-                    'proveedor': lote.proveedor,
-                }
-            )
-            if not created:
-                lote_destino.cantidad_actual += cantidad
-                lote_destino.save()
+                tipo_mov = MovimientoStock.TipoMovimiento.TRASPASO_BODEGA_VITRINA
+                if destino.tipo == Ubicacion.TipoUbicacion.BODEGA:
+                    tipo_mov = MovimientoStock.TipoMovimiento.TRASPASO_VITRINA_BODEGA
 
-            tipo_mov = MovimientoStock.TipoMovimiento.TRASPASO_BODEGA_VITRINA
-            if destino.tipo == Ubicacion.TipoUbicacion.BODEGA:
-                tipo_mov = MovimientoStock.TipoMovimiento.TRASPASO_VITRINA_BODEGA
+                MovimientoStock.objects.create(
+                    lote=lote,
+                    tipo=tipo_mov,
+                    cantidad=cantidad,
+                    cantidad_anterior=cantidad_anterior,
+                    cantidad_posterior=lote.cantidad_actual,
+                    motivo=f'Traspaso interno hacia {destino.nombre}',
+                    usuario=request.user,
+                    ubicacion_origen=origen,
+                    ubicacion_destino=destino,
+                )
 
-            MovimientoStock.objects.create(
-                lote=lote,
-                tipo=tipo_mov,
-                cantidad=cantidad,
-                cantidad_anterior=cantidad_anterior,
-                cantidad_posterior=lote.cantidad_actual,
-                motivo=f'Traspaso a {destino.nombre}',
-                usuario=request.user,
-                ubicacion_origen=origen,
-                ubicacion_destino=destino,
-            )
+                registrar_auditoria(
+                    request.user, 'Traspaso interno de inventario', f'Lote {lote.numero_lote}',
+                    valores_anteriores={'ubicacion': str(origen), 'cantidad': cantidad_anterior},
+                    valores_nuevos={'ubicacion': str(destino), 'cantidad_traspasada': cantidad}
+                )
 
-            registrar_auditoria(
-                request.user, 'Traspaso de stock', f'Lote {lote.numero_lote}',
-                valores_anteriores={'ubicacion': str(origen), 'cantidad': cantidad_anterior},
-                valores_nuevos={'ubicacion': str(destino), 'cantidad_traspasada': cantidad}
-            )
-
-            messages.success(request, f'Se traspasaron {cantidad} unidades del lote {lote.numero_lote} a {destino.nombre}.')
-            return redirect('farmacia:movimiento_list')
+                messages.success(request, f'Se traspasaron {cantidad} unidades del lote {lote.numero_lote} hacia {destino.nombre}.')
+                return redirect('farmacia:movimiento_list')
+        except ValueError as ve:
+            messages.error(request, str(ve))
         except Exception as e:
             messages.error(request, f'Error en el traspaso: {e}')
 
     lotes = Lote.objects.filter(
-        activo=True, cantidad_actual__gt=0
+        activo=True, en_cuarentena=False, cantidad_actual__gt=0, fecha_vencimiento__gt=date.today()
     ).select_related('medicamento', 'ubicacion').order_by('fecha_vencimiento')
     ubicaciones = Ubicacion.objects.filter(activa=True)
+
+    selected_lote_id = str(request.POST.get('lote') or request.GET.get('lote') or '').strip()
+    if not selected_lote_id and request.GET.get('medicamento', '').isdigit():
+        lote_med = lotes.filter(
+            medicamento_id=int(request.GET.get('medicamento')),
+            ubicacion__tipo=Ubicacion.TipoUbicacion.BODEGA,
+            fecha_vencimiento__gt=date.today(),
+        ).first()
+        if lote_med:
+            selected_lote_id = str(lote_med.pk)
+
+    selected_destino_id = str(request.POST.get('destino') or request.GET.get('destino') or '').strip()
+    if not selected_destino_id and selected_lote_id.isdigit():
+        lote_pre = lotes.filter(pk=int(selected_lote_id)).first()
+        if lote_pre:
+            tipo_destino = (
+                Ubicacion.TipoUbicacion.VITRINA
+                if lote_pre.ubicacion.tipo == Ubicacion.TipoUbicacion.BODEGA
+                else Ubicacion.TipoUbicacion.BODEGA
+            )
+            dest_sug = ubicaciones.filter(tipo=tipo_destino).first()
+            if dest_sug:
+                selected_destino_id = str(dest_sug.pk)
 
     return render(request, 'farmacia/traspaso.html', {
         'lotes': lotes,
         'ubicaciones': ubicaciones,
+        'selected_lote_id': selected_lote_id,
+        'selected_destino_id': selected_destino_id,
     })
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El monitor de alertas de vencimiento de bodega/vitrina está reservado a Farmacia y Administración.'
+)
 def alertas_vencimiento(request):
     """Alertas de vencimiento próximo (30/60/90 días) y quiebre de stock."""
     hoy = date.today()
 
     alertas_30 = Lote.objects.filter(
-        activo=True, cantidad_actual__gt=0,
+        activo=True, en_cuarentena=False, cantidad_actual__gt=0,
         fecha_vencimiento__gt=hoy, fecha_vencimiento__lte=hoy + timedelta(days=30)
     ).select_related('medicamento', 'ubicacion').order_by('fecha_vencimiento')
 
     alertas_60 = Lote.objects.filter(
-        activo=True, cantidad_actual__gt=0,
+        activo=True, en_cuarentena=False, cantidad_actual__gt=0,
         fecha_vencimiento__gt=hoy + timedelta(days=30), fecha_vencimiento__lte=hoy + timedelta(days=60)
     ).select_related('medicamento', 'ubicacion').order_by('fecha_vencimiento')
 
     alertas_90 = Lote.objects.filter(
-        activo=True, cantidad_actual__gt=0,
+        activo=True, en_cuarentena=False, cantidad_actual__gt=0,
         fecha_vencimiento__gt=hoy + timedelta(days=60), fecha_vencimiento__lte=hoy + timedelta(days=90)
     ).select_related('medicamento', 'ubicacion').order_by('fecha_vencimiento')
 
     vencidos = Lote.objects.filter(
-        activo=True, cantidad_actual__gt=0, fecha_vencimiento__lte=hoy
+        activo=True, en_cuarentena=False, cantidad_actual__gt=0, fecha_vencimiento__lte=hoy
     ).select_related('medicamento', 'ubicacion').order_by('fecha_vencimiento')
 
     # Medicamentos en quiebre de stock
@@ -399,7 +653,10 @@ def alertas_vencimiento(request):
     })
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El módulo de pedidos y remesas CENABAST no está habilitado para el Personal Clínico.'
+)
 @transaction.atomic
 def orden_list(request):
     """
@@ -446,9 +703,16 @@ def orden_list(request):
                         )
                         items_agregados.append(f'{med_obj.nombre_generico} x{cant_val}')
 
-            # 2) Procesar si el usuario incorporó un NUEVO medicamento que no estaba en el catálogo
+            # 2) Procesar si el usuario incorporó un NUEVO medicamento que no estaba en el catálogo (Solo Admin / Q.F.)
             incluir_nuevo = request.POST.get('incluir_nuevo_med') == 'on'
             nuevo_nombre = request.POST.get('nuevo_nombre_generico', '').strip()
+            if incluir_nuevo:
+                if request.user.rol not in ('admin', 'quimico'):
+                    return denegar_acceso(
+                        request,
+                        motivo='El Técnico en Farmacia solo puede solicitar medicamentos existentes en el Arsenal Oficial. Solo el Químico Farmacéutico o Administrador puede incorporar fármacos nuevos al catálogo.',
+                        roles_autorizados=('quimico', 'admin')
+                    )
             if incluir_nuevo and nuevo_nombre:
                 nuevo_codigo = request.POST.get('nuevo_codigo', '').strip().upper()
                 if not nuevo_codigo:
@@ -496,32 +760,79 @@ def orden_list(request):
         except Exception as e:
             messages.error(request, f'Error al generar orden: {e}')
 
-    ordenes = OrdenAbastecimiento.objects.all().prefetch_related('detalles', 'detalles__medicamento')
+    ordenes_base = OrdenAbastecimiento.objects.all().prefetch_related('detalles', 'detalles__medicamento')
+    total_todas = ordenes_base.count()
+    total_pendientes_qf = ordenes_base.filter(estado=OrdenAbastecimiento.EstadoOrden.PENDIENTE).count()
+    total_aprobadas = ordenes_base.filter(estado=OrdenAbastecimiento.EstadoOrden.ENVIADA).count()
+    total_recepcionadas = ordenes_base.filter(estado=OrdenAbastecimiento.EstadoOrden.RECEPCIONADA).count()
+
+    filtro = request.GET.get('filtro', 'todas').strip()
+    if filtro == 'pendientes_qf':
+        ordenes = ordenes_base.filter(estado=OrdenAbastecimiento.EstadoOrden.PENDIENTE)
+    elif filtro == 'aprobadas':
+        ordenes = ordenes_base.filter(estado=OrdenAbastecimiento.EstadoOrden.ENVIADA)
+    elif filtro == 'recepcionadas':
+        ordenes = ordenes_base.filter(estado=OrdenAbastecimiento.EstadoOrden.RECEPCIONADA)
+    else:
+        filtro = 'todas'
+        ordenes = ordenes_base
+
     todos_meds = list(Medicamento.objects.filter(activo=True).select_related('categoria'))
     medicamentos_quiebre = [m for m in todos_meds if m.en_quiebre]
     categorias = CategoriaMedicamento.objects.all()
 
+    preselected_med_id = str(request.GET.get('medicamento', '') or '').strip()
+    cantidad_sugerida = ''
+    if preselected_med_id.isdigit():
+        med_pre = next((m for m in todos_meds if str(m.pk) == preselected_med_id), None)
+        if med_pre:
+            cantidad_sugerida = max(med_pre.stock_maximo - med_pre.stock_total, med_pre.stock_minimo * 3, 100)
+
     return render(request, 'farmacia/orden_list.html', {
         'ordenes': ordenes,
+        'filtro': filtro,
+        'total_todas': total_todas,
+        'total_pendientes_qf': total_pendientes_qf,
+        'total_aprobadas': total_aprobadas,
+        'total_recepcionadas': total_recepcionadas,
         'medicamentos': todos_meds,
         'medicamentos_quiebre': medicamentos_quiebre,
         'categorias': categorias,
+        'preselected_med_id': preselected_med_id,
+        'cantidad_sugerida': cantidad_sugerida,
     })
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='La generación de borradores de abastecimiento CENABAST no está habilitada para el Personal Clínico.'
+)
 @transaction.atomic
 def generar_orden_automatica(request):
     """
     Detecta todos los fármacos en quiebre de stock (bajo stock_minimo) o con stock crítico
-    y genera una Orden de Pedido en estado PENDIENTE (Borrador Editable) para que el usuario
-    pueda revisarla, modificar cantidades, quitar o agregar medicamentos antes de enviarla.
+    y genera una Orden de Pedido en estado PENDIENTE (Borrador Editable), evitando duplicados
+    si ya existe un borrador con los mismos medicamentos en quiebre.
     """
     todos_meds = list(Medicamento.objects.filter(activo=True))
     meds_criticos = [m for m in todos_meds if m.en_quiebre]
 
     if not meds_criticos:
         meds_criticos = sorted(todos_meds, key=lambda m: m.stock_total)[:2]
+
+    ids_criticos = sorted(m.pk for m in meds_criticos)
+    ordenes_pendientes = OrdenAbastecimiento.objects.filter(
+        estado=OrdenAbastecimiento.EstadoOrden.PENDIENTE
+    ).prefetch_related('detalles')
+    for ord_pend in ordenes_pendientes:
+        ids_ord = sorted(ord_pend.detalles.values_list('medicamento_id', flat=True))
+        if ids_ord == ids_criticos:
+            messages.warning(
+                request,
+                f'Ya existe una propuesta en borrador ({ord_pend.numero_orden}) con los mismos fármacos en quiebre. '
+                f'Puedes revisarla, editarla o aprobarla directamente.'
+            )
+            return redirect('farmacia:orden_detalle', pk=ord_pend.pk)
 
     correlativo = OrdenAbastecimiento.objects.count() + 1
     while OrdenAbastecimiento.objects.filter(numero_orden=f'OC-CENABAST-2026-{correlativo:04d}').exists():
@@ -563,7 +874,10 @@ def generar_orden_automatica(request):
     return redirect('farmacia:orden_detalle', pk=orden.pk)
 
 
-@login_required
+@rol_requerido(
+    'admin', 'quimico', 'tecnico',
+    motivo='El módulo de órdenes de abastecimiento CENABAST no está habilitado para el Personal Clínico.'
+)
 @transaction.atomic
 def orden_detalle(request, pk):
     """
@@ -585,8 +899,8 @@ def orden_detalle(request, pk):
     if request.method == 'POST':
         accion = request.POST.get('accion')
 
-        # 1. Editar datos generales de la cabecera
-        if accion == 'editar_cabecera' and orden.estado != OrdenAbastecimiento.EstadoOrden.RECEPCIONADA:
+        # 1. Editar datos generales de la cabecera (solo en Borrador)
+        if accion == 'editar_cabecera' and orden.estado == OrdenAbastecimiento.EstadoOrden.PENDIENTE:
             ant = {'tipo': orden.tipo, 'proveedor': orden.proveedor, 'observaciones': orden.observaciones}
             orden.tipo = request.POST.get('tipo', orden.tipo)
             orden.proveedor = request.POST.get('proveedor', orden.proveedor).strip()
@@ -602,8 +916,8 @@ def orden_detalle(request, pk):
             messages.success(request, 'Datos generales de la orden actualizados.')
             return redirect('farmacia:orden_detalle', pk=orden.pk)
 
-        # 2. Actualizar la cantidad solicitada de un ítem específico
-        elif accion == 'actualizar_item' and orden.estado != OrdenAbastecimiento.EstadoOrden.RECEPCIONADA:
+        # 2. Actualizar la cantidad solicitada de un ítem específico (solo en Borrador)
+        elif accion == 'actualizar_item' and orden.estado == OrdenAbastecimiento.EstadoOrden.PENDIENTE:
             det = get_object_or_404(DetalleOrdenAbastecimiento, pk=request.POST.get('detalle_id'), orden=orden)
             cant_ant = det.cantidad_solicitada
             nueva_cant = int(request.POST.get('cantidad_solicitada', cant_ant))
@@ -624,8 +938,8 @@ def orden_detalle(request, pk):
                 messages.success(request, f'Cantidad de {det.medicamento.nombre_generico} actualizada a {nueva_cant} unidades.')
             return redirect('farmacia:orden_detalle', pk=orden.pk)
 
-        # 3. Eliminar un ítem de la orden
-        elif accion == 'eliminar_item' and orden.estado != OrdenAbastecimiento.EstadoOrden.RECEPCIONADA:
+        # 3. Eliminar un ítem de la orden (solo en Borrador)
+        elif accion == 'eliminar_item' and orden.estado == OrdenAbastecimiento.EstadoOrden.PENDIENTE:
             det = get_object_or_404(DetalleOrdenAbastecimiento, pk=request.POST.get('detalle_id'), orden=orden)
             nombre_med = det.medicamento.nombre_generico
             cant_ant = det.cantidad_solicitada
@@ -640,8 +954,8 @@ def orden_detalle(request, pk):
             messages.warning(request, f'Se quitó "{nombre_med}" de la orden {orden.numero_orden}.')
             return redirect('farmacia:orden_detalle', pk=orden.pk)
 
-        # 4. Agregar un medicamento existente del catálogo a la orden
-        elif accion == 'agregar_item_existente' and orden.estado != OrdenAbastecimiento.EstadoOrden.RECEPCIONADA:
+        # 4. Agregar un medicamento existente del catálogo a la orden (solo en Borrador)
+        elif accion == 'agregar_item_existente' and orden.estado == OrdenAbastecimiento.EstadoOrden.PENDIENTE:
             med = get_object_or_404(Medicamento, pk=request.POST.get('medicamento_id'))
             cant = int(request.POST.get('cantidad_solicitada', 100) or 100)
             det_existente = DetalleOrdenAbastecimiento.objects.filter(orden=orden, medicamento=med).first()
@@ -666,8 +980,14 @@ def orden_detalle(request, pk):
             )
             return redirect('farmacia:orden_detalle', pk=orden.pk)
 
-        # 5. Crear un NUEVO medicamento que no existe en el catálogo y agregarlo a la orden
-        elif accion == 'agregar_item_nuevo' and orden.estado != OrdenAbastecimiento.EstadoOrden.RECEPCIONADA:
+        # 5. Crear un NUEVO medicamento que no existe en el catálogo y agregarlo a la orden (Solo Admin / Q.F. en Borrador)
+        elif accion == 'agregar_item_nuevo' and orden.estado == OrdenAbastecimiento.EstadoOrden.PENDIENTE:
+            if request.user.rol not in ('admin', 'quimico'):
+                return denegar_acceso(
+                    request,
+                    motivo='El Técnico en Farmacia solo puede solicitar medicamentos existentes en el Arsenal Oficial. Solo el Químico Farmacéutico o Administrador puede incorporar fármacos nuevos.',
+                    roles_autorizados=('quimico', 'admin')
+                )
             try:
                 codigo = request.POST.get('codigo', '').strip().upper()
                 if not codigo:
@@ -711,19 +1031,20 @@ def orden_detalle(request, pk):
                 messages.error(request, f'Error al registrar nuevo medicamento en la orden: {e}')
             return redirect('farmacia:orden_detalle', pk=orden.pk)
 
-        # 6. Reabrir orden a estado Pendiente (Edición)
+        # 6. Reabrir orden a estado Pendiente (Borrador) — limpia firma Q.F. previa para exigir nueva visación
         elif accion == 'reabrir_edicion' and orden.estado != OrdenAbastecimiento.EstadoOrden.RECEPCIONADA:
             est_ant = orden.estado
             orden.estado = OrdenAbastecimiento.EstadoOrden.PENDIENTE
+            orden.aprobador_qf = None
             orden.save()
             registrar_auditoria(
                 request.user,
-                'Reapertura de Orden CENABAST para Edición',
+                'Reapertura de Orden CENABAST a Borrador',
                 f'Orden {orden.numero_orden}',
                 valores_anteriores={'estado': est_ant},
-                valores_nuevos={'estado': 'pendiente'}
+                valores_nuevos={'estado': 'pendiente', 'visacion_qf': 'pendiente'}
             )
-            messages.info(request, f'Orden {orden.numero_orden} reabierta en modo Edición.')
+            messages.info(request, f'Orden {orden.numero_orden} reabierta en estado Borrador. Requerirá nueva aprobación Q.F. antes de recepcionar.')
             return redirect('farmacia:orden_detalle', pk=orden.pk)
 
         # 7. Anular orden
@@ -755,8 +1076,17 @@ def orden_detalle(request, pk):
             messages.warning(request, f'Orden {num} eliminada permanentemente.')
             return redirect('farmacia:orden_list')
 
-        # 9. Visar / Aprobar como Q.F.
-        elif accion == 'aprobar' and request.user.rol in ('admin', 'quimico'):
+        # 9. Visar / Aprobar como Q.F. (o simulación de despacho por Admin)
+        elif accion == 'aprobar':
+            if request.user.rol not in ('admin', 'quimico'):
+                return denegar_acceso(
+                    request,
+                    motivo='El Técnico en Farmacia puede levantar borradores de reposición, pero la aprobación oficial requiere la validación del Químico Farmacéutico.',
+                    roles_autorizados=('quimico', 'admin')
+                )
+            if orden.estado != OrdenAbastecimiento.EstadoOrden.PENDIENTE:
+                messages.warning(request, 'Solo las órdenes en estado Borrador / Pendiente Q.F. pueden aprobarse.')
+                return redirect('farmacia:orden_detalle', pk=orden.pk)
             if not detalles.exists():
                 messages.error(request, 'No se puede visar una orden vacía sin medicamentos.')
                 return redirect('farmacia:orden_detalle', pk=orden.pk)
@@ -770,11 +1100,23 @@ def orden_detalle(request, pk):
                 valores_anteriores={'estado': 'pendiente'},
                 valores_nuevos={'estado': 'enviada', 'aprobador_qf': request.user.get_full_name()}
             )
-            messages.success(request, f'Orden {orden.numero_orden} visada por Q.F. y enviada a CENABAST.')
+            messages.success(request, f'Orden {orden.numero_orden} aprobada por Q.F. y habilitada para recepción en Bodega.')
             return redirect('farmacia:orden_detalle', pk=orden.pk)
 
-        # 10. Recepcionar remesa en Bodega Central
+        # 10. Recepcionar remesa en Bodega Central (BLOQUEADO sin aprobación oficial previa del Q.F.)
         elif accion == 'recepcionar':
+            if orden.estado != OrdenAbastecimiento.EstadoOrden.ENVIADA or not orden.aprobador_qf:
+                registrar_auditoria(
+                    request.user,
+                    'Intento Bloqueado de Recepción sin Visación Q.F.',
+                    f'Orden {orden.numero_orden}',
+                    valores_nuevos={'estado_actual': orden.estado, 'rol': request.user.rol}
+                )
+                return denegar_acceso(
+                    request,
+                    motivo='La recepción de remesa e ingreso de stock a Bodega están bloqueados hasta que la orden cuente con aprobación oficial del Químico Farmacéutico.',
+                    roles_autorizados=('quimico',)
+                )
             if not detalles.exists():
                 messages.error(request, 'La orden no tiene ítems para recepcionar.')
                 return redirect('farmacia:orden_detalle', pk=orden.pk)
@@ -827,8 +1169,6 @@ def orden_detalle(request, pk):
             orden.estado = OrdenAbastecimiento.EstadoOrden.RECEPCIONADA
             orden.guia_despacho = guia
             orden.fecha_recepcion = timezone.now()
-            if not orden.aprobador_qf:
-                orden.aprobador_qf = request.user
             orden.save()
 
             registrar_auditoria(

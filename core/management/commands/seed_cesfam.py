@@ -8,8 +8,11 @@ import pyotp
 from django.core.management.base import BaseCommand
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
+from django.db.models import Q
 
-from core.models import Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema
+from core.models import (
+    Usuario, Paciente, MedicoPrescriptor, AuditoriaInmutable, AlertaSistema, EscenarioSimulacion
+)
 from core.utils import formatear_rut, registrar_auditoria
 from farmacia.models import (
     CategoriaMedicamento, Medicamento, Ubicacion, Lote, MovimientoStock
@@ -28,8 +31,16 @@ from core.mongo_client import get_mongo_db
 class Command(BaseCommand):
     help = 'Puebla PostgreSQL y MongoDB con datos chilenos realistas para CESFAM Farmacia'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--preservar-usuarios',
+            action='store_true',
+            help='No sobrescribe contraseñas ni PINs de cuentas ya existentes en la base de datos.',
+        )
+
     @transaction.atomic
     def handle(self, *args, **options):
+        preservar_usuarios = bool(options.get('preservar_usuarios'))
         self.stdout.write(self.style.NOTICE("=== Iniciando Seed CESFAM Farmacia ==="))
 
         hoy = date.today()
@@ -89,23 +100,31 @@ class Command(BaseCommand):
 
         usuarios_creados = {}
         for u_data in usuarios_data:
-            user, created = Usuario.objects.get_or_create(
-                username=u_data['username'],
-                defaults={
-                    'rut': u_data['rut'],
-                    'first_name': u_data['first_name'],
-                    'last_name': u_data['last_name'],
-                    'email': u_data['email'],
-                    'rol': u_data['rol'],
-                    'is_staff': u_data['is_staff'],
-                    'is_superuser': u_data['is_superuser'],
-                    'pin_seguridad': u_data.get('pin_seguridad', ''),
-                }
-            )
-            user.set_password('Inacap2026!')
-            if u_data.get('pin_seguridad'):
-                user.pin_seguridad = u_data['pin_seguridad']
-            user.save()
+            user = Usuario.objects.filter(
+                Q(username=u_data['username']) | Q(rut=u_data['rut'])
+            ).first()
+            created = False
+            if not user:
+                user = Usuario.objects.create(
+                    username=u_data['username'],
+                    rut=u_data['rut'],
+                    first_name=u_data['first_name'],
+                    last_name=u_data['last_name'],
+                    email=u_data['email'],
+                    rol=u_data['rol'],
+                    is_staff=u_data['is_staff'],
+                    is_superuser=u_data['is_superuser'],
+                    pin_seguridad=u_data.get('pin_seguridad', ''),
+                )
+                created = True
+            if created or not preservar_usuarios:
+                user.set_password('Inacap2026!')
+                if u_data.get('pin_seguridad'):
+                    user.pin_seguridad = u_data['pin_seguridad']
+                user.save()
+            elif not user.has_usable_password():
+                user.set_password('Inacap2026!')
+                user.save()
             usuarios_creados[u_data['username']] = user
             self.stdout.write(f"  - Usuario {user.username} ({user.get_rol_display()}) OK")
 
@@ -274,6 +293,18 @@ class Command(BaseCommand):
             nombre='Fármacos de Emergencia y Carro de Paro',
             defaults={'descripcion': 'Reanimación cardiopulmonar en box', 'es_controlado': False}
         )
+        cat_resp, _ = CategoriaMedicamento.objects.get_or_create(
+            nombre='Respiratorio / Broncodilatadores (GES Asma/EPOC)',
+            defaults={'descripcion': 'Tratamiento de crisis bronquiales y asma/EPOC', 'es_controlado': False}
+        )
+        cat_resp_dup = CategoriaMedicamento.objects.filter(nombre='Respiratorio / Broncodilatadores').first()
+        if cat_resp_dup:
+            Medicamento.objects.filter(categoria=cat_resp_dup).update(categoria=cat_resp)
+            cat_resp_dup.delete()
+        cat_insumos, _ = CategoriaMedicamento.objects.get_or_create(
+            nombre='Insumos Clínicos',
+            defaults={'descripcion': 'Soluciones parenterales estériles y material clínico descartable APS', 'es_controlado': False}
+        )
 
         # Medicamento 1: Losartán (Demostración FEFO con 4 lotes)
         med_losartan, _ = Medicamento.objects.get_or_create(
@@ -398,6 +429,52 @@ class Command(BaseCommand):
                 'es_controlado': False,
             }
         )
+        med_salbutamol, _ = Medicamento.objects.get_or_create(
+            codigo='MED-RESP-001',
+            defaults={
+                'nombre_generico': 'Salbutamol Sulfato',
+                'nombre_comercial': 'Aerolin / Genérico CENABAST',
+                'concentracion': '100 mcg/dosis',
+                'forma_farmaceutica': 'Inhalador presurizado (200 dosis)',
+                'unidad_medida': Medicamento.UnidadMedida.INHALADOR,
+                'categoria': cat_resp,
+                'stock_minimo': 25,
+                'stock_maximo': 300,
+                'es_controlado': False,
+            }
+        )
+
+        # Insumos Clínicos (RF-03)
+        ins_suero, _ = Medicamento.objects.get_or_create(
+            codigo='INS-CLI-001',
+            defaults={
+                'nombre_generico': 'Suero Fisiológico NaCl 0,9% 500 ml',
+                'nombre_comercial': 'Cloruro de Sodio 0,9% Matraz / CENABAST',
+                'concentracion': '0,9% (500 ml)',
+                'forma_farmaceutica': 'Matraz solución estéril',
+                'unidad_medida': Medicamento.UnidadMedida.FRASCO,
+                'categoria': cat_insumos,
+                'stock_minimo': 40,
+                'stock_maximo': 600,
+                'requiere_receta': False,
+                'es_controlado': False,
+            }
+        )
+        ins_jeringa, _ = Medicamento.objects.get_or_create(
+            codigo='INS-CLI-002',
+            defaults={
+                'nombre_generico': 'Jeringa Desechable 5 ml con aguja',
+                'nombre_comercial': 'Jeringa Estéril 21G x 1½"',
+                'concentracion': '5 ml (21G)',
+                'forma_farmaceutica': 'Insumo estéril desechable',
+                'unidad_medida': Medicamento.UnidadMedida.UNIDAD,
+                'categoria': cat_insumos,
+                'stock_minimo': 100,
+                'stock_maximo': 2000,
+                'requiere_receta': False,
+                'es_controlado': False,
+            }
+        )
 
         # ----------------------------------------------------
         # 6. LOTES Y ALGORITMO FEFO (Multi-Lote)
@@ -405,6 +482,19 @@ class Command(BaseCommand):
         self.stdout.write("6. Creando lotes para demostración del algoritmo FEFO...")
 
         # Losartán: 4 lotes diseñados para demostrar FEFO y bloqueo de vencido
+        def registrar_kardex_inicial(lote):
+            if not MovimientoStock.objects.filter(lote=lote).exists():
+                MovimientoStock.objects.create(
+                    lote=lote,
+                    tipo=MovimientoStock.TipoMovimiento.INGRESO,
+                    cantidad=lote.cantidad_inicial,
+                    cantidad_anterior=0,
+                    cantidad_posterior=lote.cantidad_inicial,
+                    motivo=f'Ingreso inicial / Remesa CENABAST — Lote {lote.numero_lote}',
+                    usuario=usuarios_creados['qf_suazo'],
+                    ubicacion_destino=lote.ubicacion,
+                )
+
         lotes_losartan = [
             {
                 'numero_lote': 'LOS-2026-A1',
@@ -444,15 +534,16 @@ class Command(BaseCommand):
             },
         ]
         for l_data in lotes_losartan:
-            Lote.objects.get_or_create(
+            lote_obj, _ = Lote.objects.get_or_create(
                 medicamento=med_losartan,
                 numero_lote=l_data['numero_lote'],
                 ubicacion=l_data['ubicacion'],
                 defaults=l_data
             )
+            registrar_kardex_inicial(lote_obj)
 
         # Metformina: 2 lotes
-        Lote.objects.get_or_create(
+        lote_met_1, _ = Lote.objects.get_or_create(
             medicamento=med_metformina,
             numero_lote='MET-2026-01',
             ubicacion=vitrina,
@@ -466,7 +557,8 @@ class Command(BaseCommand):
                 'proveedor': 'CENABAST / Mintlab',
             }
         )
-        Lote.objects.get_or_create(
+        registrar_kardex_inicial(lote_met_1)
+        lote_met_2, _ = Lote.objects.get_or_create(
             medicamento=med_metformina,
             numero_lote='MET-2026-02',
             ubicacion=bodega,
@@ -480,9 +572,10 @@ class Command(BaseCommand):
                 'proveedor': 'CENABAST / Mintlab',
             }
         )
+        registrar_kardex_inicial(lote_met_2)
 
         # Paracetamol: 2 lotes
-        Lote.objects.get_or_create(
+        lote_para_1, _ = Lote.objects.get_or_create(
             medicamento=med_paracetamol,
             numero_lote='PAR-2026-01',
             ubicacion=vitrina,
@@ -496,6 +589,7 @@ class Command(BaseCommand):
                 'proveedor': 'Laboratorio Mintlab',
             }
         )
+        registrar_kardex_inicial(lote_para_1)
 
         # Clonazepam (Controlado): 1 lote
         lote_clona, _ = Lote.objects.get_or_create(
@@ -512,6 +606,7 @@ class Command(BaseCommand):
                 'proveedor': 'Laboratorio Roche / CENABAST',
             }
         )
+        registrar_kardex_inicial(lote_clona)
 
         # Morfina (Controlado): 1 lote
         lote_morfina, _ = Lote.objects.get_or_create(
@@ -528,6 +623,7 @@ class Command(BaseCommand):
                 'proveedor': 'Laboratorio Sanderson ISP',
             }
         )
+        registrar_kardex_inicial(lote_morfina)
 
         # Urgencias: Adrenalina, Amiodarona, Atropina
         lote_adrena, _ = Lote.objects.get_or_create(
@@ -544,6 +640,7 @@ class Command(BaseCommand):
                 'proveedor': 'Laboratorio Sanderson',
             }
         )
+        registrar_kardex_inicial(lote_adrena)
         lote_amioda, _ = Lote.objects.get_or_create(
             medicamento=med_amiodarona,
             numero_lote='AMI-2026-01',
@@ -558,6 +655,7 @@ class Command(BaseCommand):
                 'proveedor': 'Laboratorio Sanderson',
             }
         )
+        registrar_kardex_inicial(lote_amioda)
         lote_atrop, _ = Lote.objects.get_or_create(
             medicamento=med_atropina,
             numero_lote='ATR-2026-01',
@@ -572,6 +670,84 @@ class Command(BaseCommand):
                 'proveedor': 'Laboratorio Sanderson',
             }
         )
+        registrar_kardex_inicial(lote_atrop)
+        lote_salbu, _ = Lote.objects.get_or_create(
+            medicamento=med_salbutamol,
+            numero_lote='SAL-2026-01',
+            ubicacion=vitrina,
+            defaults={
+                'numero_lote': 'SAL-2026-01',
+                'fecha_fabricacion': hoy - timedelta(days=45),
+                'fecha_vencimiento': hoy + timedelta(days=360),
+                'cantidad_inicial': 80,
+                'cantidad_actual': 60,
+                'ubicacion': vitrina,
+                'proveedor': 'Laboratorio GSK / CENABAST',
+            }
+        )
+        registrar_kardex_inicial(lote_salbu)
+
+        # Lotes vigentes de Insumos Clínicos
+        lote_suero_bod, _ = Lote.objects.get_or_create(
+            medicamento=ins_suero,
+            numero_lote='SUE-2026-01',
+            ubicacion=bodega,
+            defaults={
+                'numero_lote': 'SUE-2026-01',
+                'fecha_fabricacion': hoy - timedelta(days=40),
+                'fecha_vencimiento': hoy + timedelta(days=540),
+                'cantidad_inicial': 160,
+                'cantidad_actual': 160,
+                'ubicacion': bodega,
+                'proveedor': 'CENABAST / B. Braun',
+            }
+        )
+        registrar_kardex_inicial(lote_suero_bod)
+        lote_suero_vit, _ = Lote.objects.get_or_create(
+            medicamento=ins_suero,
+            numero_lote='SUE-2026-01',
+            ubicacion=vitrina,
+            defaults={
+                'numero_lote': 'SUE-2026-01',
+                'fecha_fabricacion': hoy - timedelta(days=40),
+                'fecha_vencimiento': hoy + timedelta(days=540),
+                'cantidad_inicial': 40,
+                'cantidad_actual': 40,
+                'ubicacion': vitrina,
+                'proveedor': 'CENABAST / B. Braun',
+            }
+        )
+        registrar_kardex_inicial(lote_suero_vit)
+        lote_jeringa_bod, _ = Lote.objects.get_or_create(
+            medicamento=ins_jeringa,
+            numero_lote='JER-2026-01',
+            ubicacion=bodega,
+            defaults={
+                'numero_lote': 'JER-2026-01',
+                'fecha_fabricacion': hoy - timedelta(days=30),
+                'fecha_vencimiento': hoy + timedelta(days=720),
+                'cantidad_inicial': 300,
+                'cantidad_actual': 300,
+                'ubicacion': bodega,
+                'proveedor': 'CENABAST / Terumo',
+            }
+        )
+        registrar_kardex_inicial(lote_jeringa_bod)
+        lote_jeringa_vit, _ = Lote.objects.get_or_create(
+            medicamento=ins_jeringa,
+            numero_lote='JER-2026-01',
+            ubicacion=vitrina,
+            defaults={
+                'numero_lote': 'JER-2026-01',
+                'fecha_fabricacion': hoy - timedelta(days=30),
+                'fecha_vencimiento': hoy + timedelta(days=720),
+                'cantidad_inicial': 100,
+                'cantidad_actual': 100,
+                'ubicacion': vitrina,
+                'proveedor': 'CENABAST / Terumo',
+            }
+        )
+        registrar_kardex_inicial(lote_jeringa_vit)
 
         # ----------------------------------------------------
         # 7. PROGRAMAS GES / AUGE Y CONTROL DE CUOTAS
@@ -593,6 +769,14 @@ class Command(BaseCommand):
                 'activa': True,
             }
         )
+        ges_epoc, _ = PatologiaGES.objects.get_or_create(
+            codigo='GES-38',
+            defaults={
+                'nombre': 'Enfermedad Pulmonar Obstructiva Crónica (EPOC)',
+                'descripcion': 'Garantía Explícita de Salud N° 38, tratamiento inhalatorio ambulatorio APS',
+                'activa': True,
+            }
+        )
 
         canasta_losartan, _ = CanastaGES.objects.get_or_create(
             patologia=ges_hta,
@@ -607,6 +791,14 @@ class Command(BaseCommand):
             medicamento=med_metformina,
             defaults={
                 'cantidad_por_cuota': 60,
+                'cuotas_autorizadas': 12,
+            }
+        )
+        canasta_salbutamol, _ = CanastaGES.objects.get_or_create(
+            patologia=ges_epoc,
+            medicamento=med_salbutamol,
+            defaults={
+                'cantidad_por_cuota': 2,
                 'cuotas_autorizadas': 12,
             }
         )
@@ -656,6 +848,19 @@ class Command(BaseCommand):
                 }
             )
 
+        # Inscripción de Pedro Alfonso Tapia Vega en GES EPOC (coherente con su receta de Salbutamol)
+        paciente_pedro = pacientes_creados[4]
+        InscripcionGES.objects.get_or_create(
+            paciente=paciente_pedro,
+            patologia=ges_epoc,
+            defaults={
+                'fecha_inscripcion': hoy - timedelta(days=90),
+                'fecha_inicio_periodo': hoy - timedelta(days=90),
+                'fecha_fin_periodo': hoy + timedelta(days=275),
+                'activa': True,
+            }
+        )
+
         # ----------------------------------------------------
         # 8. CARRO DE PARO Y PLANTILLA CANÓNICA
         # ----------------------------------------------------
@@ -700,7 +905,22 @@ class Command(BaseCommand):
             }
         )
 
-        # Carro de Unidosis de Sala
+        # Consumo de prueba registrado por Personal Clínico -> Carro de Paro parte con faltante = 2
+        if not ConsumoCarroClinico.objects.filter(carro=carro_paro).exists() and not ReposicionCarro.objects.filter(carro=carro_paro).exists():
+            ConsumoCarroClinico.objects.create(
+                carro=carro_paro,
+                item=item_adr,
+                cantidad_consumida=2,
+                motivo='Atención urgencia Box Reanimación (shock anafiláctico)',
+                paciente_atendido='Juan Carlos Pérez Soto (11.234.567-1)',
+                personal_clinico=usuarios_creados['enfermera_gonzalez'],
+            )
+            item_adr.cantidad_actual = max(0, item_adr.cantidad_requerida - 2)
+            item_adr.save(update_fields=['cantidad_actual'])
+            carro_paro.estado = CarroClinico.EstadoCarro.INCOMPLETO
+            carro_paro.save(update_fields=['estado'])
+
+        # Carro de Unidosis de Sala con dotación base realista (4 ítems)
         carro_unidosis, _ = CarroClinico.objects.get_or_create(
             nombre='Carro de Tratamiento Unidosis - Box Procedimientos',
             defaults={
@@ -712,6 +932,48 @@ class Command(BaseCommand):
                 'responsable_actual': usuarios_creados['enfermera_gonzalez'],
             }
         )
+        PlantillaItemCarro.objects.get_or_create(
+            carro=carro_unidosis,
+            medicamento=med_paracetamol,
+            defaults={
+                'cantidad_requerida': 20,
+                'cantidad_actual': 20,
+                'ubicacion_en_carro': 'Cajón 1 - Analgesia y Antipiresis',
+            }
+        )
+        PlantillaItemCarro.objects.get_or_create(
+            carro=carro_unidosis,
+            medicamento=med_salbutamol,
+            defaults={
+                'cantidad_requerida': 4,
+                'cantidad_actual': 4,
+                'ubicacion_en_carro': 'Bandeja Respiratoria - Broncodilatadores',
+            }
+        )
+        PlantillaItemCarro.objects.get_or_create(
+            carro=carro_unidosis,
+            medicamento=med_losartan,
+            defaults={
+                'cantidad_requerida': 15,
+                'cantidad_actual': 15,
+                'ubicacion_en_carro': 'Bandeja 2 - Control Cardiovascular',
+            }
+        )
+        PlantillaItemCarro.objects.get_or_create(
+            carro=carro_unidosis,
+            medicamento=med_atropina,
+            defaults={
+                'cantidad_requerida': 5,
+                'cantidad_actual': 5,
+                'ubicacion_en_carro': 'Cajón Procedimientos - Ampollas',
+            }
+        )
+        carro_unidosis.estado = (
+            CarroClinico.EstadoCarro.COMPLETO
+            if carro_unidosis.esta_completo
+            else CarroClinico.EstadoCarro.INCOMPLETO
+        )
+        carro_unidosis.save(update_fields=['estado'])
 
         # ----------------------------------------------------
         # 9. RECETAS MÉDICAS Y DISPENSACIÓN ASISTENCIAL GRATUITA
@@ -779,8 +1041,8 @@ class Command(BaseCommand):
                 }
             )
 
-        # Receta pendiente para prueba directa de dispensación
-        receta_pendiente, _ = Receta.objects.get_or_create(
+        # Receta vencida de demostración (bloqueada en ventanilla)
+        receta_vencida_demo, _ = Receta.objects.get_or_create(
             numero_receta='REC-2026-00102',
             defaults={
                 'paciente': pacientes_creados[2], # Carlos Silva
@@ -788,13 +1050,13 @@ class Command(BaseCommand):
                 'tipo': Receta.TipoReceta.SIMPLE,
                 'estado': Receta.EstadoReceta.PENDIENTE,
                 'diagnostico': 'Síndrome febril inespecífico / Cefalea tensional',
-                'fecha_emision': hoy,
-                'fecha_vencimiento': hoy + timedelta(days=15),
+                'fecha_emision': hoy - timedelta(days=33),
+                'fecha_vencimiento': hoy - timedelta(days=18),
                 'observaciones': 'Reposo por 48 horas y analgesia SOS.',
             }
         )
         DetalleReceta.objects.get_or_create(
-            receta=receta_pendiente,
+            receta=receta_vencida_demo,
             medicamento=med_paracetamol,
             defaults={
                 'cantidad_prescrita': 20,
@@ -803,6 +1065,88 @@ class Command(BaseCommand):
                 'dias_tratamiento': 5,
             }
         )
+
+        # Receta simple vigente lista para atención directa en ventanilla
+        receta_vigente_demo, _ = Receta.objects.get_or_create(
+            numero_receta='REC-2026-00103',
+            defaults={
+                'paciente': pacientes_creados[2], # Carlos Silva
+                'medico': medicos_creados[1],     # Dra. Valenzuela
+                'tipo': Receta.TipoReceta.SIMPLE,
+                'estado': Receta.EstadoReceta.PENDIENTE,
+                'diagnostico': 'Control sintomático respiratorio y analgesia',
+                'fecha_emision': hoy,
+                'fecha_vencimiento': hoy + timedelta(days=15),
+                'observaciones': 'Receta simple vigente para entrega inmediata en ventanilla.',
+            }
+        )
+        DetalleReceta.objects.get_or_create(
+            receta=receta_vigente_demo,
+            medicamento=med_paracetamol,
+            defaults={
+                'cantidad_prescrita': 20,
+                'cantidad_dispensada': 0,
+                'posologia': '1 comprimido cada 8 horas si presenta dolor o fiebre',
+                'dias_tratamiento': 7,
+            }
+        )
+
+        # Receta Retenida / Controlada pendiente de autorización del Q.F.
+        receta_ctrl_demo, _ = Receta.objects.get_or_create(
+            numero_receta='REC-2026-00104',
+            defaults={
+                'paciente': pacientes_creados[3], # Ana Luisa Carrasco
+                'medico': medicos_creados[0],     # Dr. Alarcón
+                'tipo': Receta.TipoReceta.RETENIDA,
+                'estado': Receta.EstadoReceta.PENDIENTE,
+                'diagnostico': 'Trastorno de ansiedad generalizada en control APS',
+                'fecha_emision': hoy,
+                'fecha_vencimiento': hoy + timedelta(days=30),
+                'autorizada_qf': False,
+                'observaciones': 'Receta retenida de psicotrópico. Requiere visación del Químico Farmacéutico antes de entrega.',
+            }
+        )
+        DetalleReceta.objects.get_or_create(
+            receta=receta_ctrl_demo,
+            medicamento=med_clonazepam,
+            defaults={
+                'cantidad_prescrita': 30,
+                'cantidad_dispensada': 0,
+                'posologia': '1 comprimido por la noche antes de dormir',
+                'dias_tratamiento': 30,
+            }
+        )
+
+        # Receta vigente de inhalador broncodilatador lista para entrega en ventanilla
+        receta_salb_demo, _ = Receta.objects.get_or_create(
+            numero_receta='REC-2026-00105',
+            defaults={
+                'paciente': pacientes_creados[4], # Pedro Alfonso Tapia Vega
+                'medico': medicos_creados[2],     # Dr. Jorge Silva
+                'tipo': Receta.TipoReceta.SIMPLE,
+                'estado': Receta.EstadoReceta.PENDIENTE,
+                'diagnostico': 'EPOC estable en control ambulatorio APS',
+                'fecha_emision': hoy,
+                'fecha_vencimiento': hoy + timedelta(days=15),
+                'observaciones': 'Usar 2 puff cada 8 horas en caso de disnea.',
+            }
+        )
+        DetalleReceta.objects.get_or_create(
+            receta=receta_salb_demo,
+            medicamento=med_salbutamol,
+            defaults={
+                'cantidad_prescrita': 2,
+                'cantidad_dispensada': 0,
+                'posologia': '2 inhalaciones cada 8 horas',
+                'dias_tratamiento': 30,
+            }
+        )
+
+        # Asegurar que recetas de prueba con fármacos simples (ej. Paracetamol) no queden marcadas como retenidas/controladas
+        for rec_simple_check in Receta.objects.filter(tipo__in=[Receta.TipoReceta.RETENIDA, Receta.TipoReceta.CHEQUE]):
+            if rec_simple_check.detalles.exists() and not rec_simple_check.tiene_medicamento_controlado:
+                rec_simple_check.tipo = Receta.TipoReceta.SIMPLE
+                rec_simple_check.save(update_fields=['tipo'])
 
         # ----------------------------------------------------
         # 10. LIBRO OFICIAL DIGITAL DE MEDICAMENTOS CONTROLADOS
@@ -1117,5 +1461,43 @@ class Command(BaseCommand):
 
         except Exception as e:
             self.stdout.write(self.style.WARNING(f"Aviso MongoDB: {e}"))
+
+        # 12. Escenarios de Simulación Docente (Evaluaciones / Talleres)
+        self.stdout.write("12. Creando escenarios de simulación docente...")
+        admin_seed = usuarios_creados.get('admin') or Usuario.objects.filter(rol=Usuario.Rol.ADMINISTRADOR).first()
+        hay_activo = EscenarioSimulacion.objects.filter(activo=True).exists()
+        esc_base, _ = EscenarioSimulacion.objects.get_or_create(
+            nombre='Escenario Base — Operación General CESFAM',
+            defaults={
+                'descripcion': 'Operación general completa del CESFAM con todo el padrón de pacientes y recetas disponibles.',
+                'activo': not hay_activo,
+                'creado_por': admin_seed,
+            },
+        )
+        esc_base.pacientes.set(Paciente.objects.all())
+        esc_base.recetas.set(Receta.objects.all())
+
+        esc_eval, _ = EscenarioSimulacion.objects.get_or_create(
+            nombre='Evaluación 1 — Crónicos GES y Controlados ISP',
+            defaults={
+                'descripcion': 'Taller evaluado focalizado en 3 pacientes (crónicos GES + controlados ISP) y 2 recetas activas para evaluación práctica.',
+                'activo': False,
+                'creado_por': admin_seed,
+            },
+        )
+        pacientes_eval = list(
+            Paciente.objects.filter(rut__in=['8.765.432-K', '7.654.321-6', '9.876.543-3'])
+        )
+        if not pacientes_eval:
+            pacientes_eval = list(Paciente.objects.filter(cronico=True).order_by('id')[:3])
+        recetas_eval = list(
+            Receta.objects.filter(numero_receta__in=['REC-2026-00104', 'REC-2026-00105'])
+        )
+        if not recetas_eval:
+            recetas_eval = list(
+                Receta.objects.filter(paciente_id__in=[p.id for p in pacientes_eval]).order_by('-id')[:2]
+            )
+        esc_eval.pacientes.set(pacientes_eval)
+        esc_eval.recetas.set(recetas_eval)
 
         self.stdout.write(self.style.SUCCESS("\n[EXITO] Base de datos relacional (PostgreSQL) y documental (MongoDB) pobladas correctamente."))
