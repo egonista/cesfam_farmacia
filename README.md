@@ -20,8 +20,8 @@ Plataforma web de gestión y simulación docente para una **Farmacia Asistencial
 
 ### 1. Clonar el repositorio
 ```bash
-git clone https://github.com/EgonMM/cesfam_farmacia_web.git
-cd cesfam_farmacia_web
+git clone https://github.com/egonista/cesfam_farmacia.git
+cd cesfam_farmacia
 ```
 
 ### 2. Crear y activar el entorno virtual
