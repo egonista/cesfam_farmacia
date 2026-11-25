@@ -61,6 +61,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'core.middleware.AuditMiddleware',
     'core.middleware.SecurityHeadersMiddleware',
+    'core.middleware.CustomErrorPagesMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -172,6 +173,7 @@ LOGOUT_REDIRECT_URL = '/login/'
 SECURE_BROWSER_XSS_FILTER = True
 X_FRAME_OPTIONS = 'DENY'
 SECURE_CONTENT_TYPE_NOSNIFF = True
+CSRF_FAILURE_VIEW = 'core.error_views.csrf_failure'
 
 # --- Cifrado simétrico (Fernet/AES) para datos sensibles - Ley 21.719 ---
 FERNET_KEY = os.environ.get('FERNET_KEY', 'FF4L3jxoeRGOG8AUMaRVygz9XemP2QQVoRcoRLwZpIs=')

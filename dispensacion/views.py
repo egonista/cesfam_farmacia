@@ -835,6 +835,7 @@ def dispensar_receta(request, receta_pk):
                 )
 
                 # Ejecutar descuentos de inventario, movimientos, cuotas GES y libro de controlados
+                resumen_stock = []
                 for op in operaciones_preparadas:
                     detalle = op['detalle']
                     lote = op['lote']
@@ -855,6 +856,9 @@ def dispensar_receta(request, receta_pk):
                     cantidad_anterior = lote.cantidad_actual
                     lote.cantidad_actual -= cantidad
                     lote.save()
+                    resumen_stock.append(
+                        f'{lote.numero_lote}: {cantidad_anterior} → {lote.cantidad_actual} unid. (-{cantidad})'
+                    )
 
                     detalle.cantidad_dispensada += cantidad
                     detalle.save()
@@ -937,7 +941,11 @@ def dispensar_receta(request, receta_pk):
                     }
                 )
 
-                messages.success(request, f'Entrega registrada correctamente para la receta {receta.numero_receta}.')
+                resumen_txt = f' Stock actualizado: {" · ".join(resumen_stock)}.' if resumen_stock else ''
+                messages.success(
+                    request,
+                    f'Entrega registrada correctamente para la receta {receta.numero_receta}.{resumen_txt}'
+                )
                 return redirect('dispensacion:dispensacion_detalle', pk=dispensacion.pk)
 
         except ValueError as ve:
@@ -983,7 +991,7 @@ def historial(request):
     motivo='El Personal Clínico no está autorizado para acceder a comprobantes de dispensación de pacientes.'
 )
 def dispensacion_detalle(request, pk):
-    """Comprobante detallado de una entrega de medicamentos."""
+    """Comprobante detallado de una entrega de medicamentos con impacto en inventario/Kardex."""
     dispensacion = get_object_or_404(
         Dispensacion.objects.select_related(
             'receta', 'receta__paciente', 'receta__medico',
@@ -991,10 +999,39 @@ def dispensacion_detalle(request, pk):
         ),
         pk=pk
     )
-    detalles = dispensacion.detalles.all().select_related(
-        'detalle_receta', 'detalle_receta__medicamento', 'lote'
+    detalles = list(
+        dispensacion.detalles.all().select_related(
+            'detalle_receta', 'detalle_receta__medicamento', 'lote', 'lote__ubicacion'
+        )
     )
+    motivo_esperado = f'Entrega de receta {dispensacion.receta.numero_receta}'
+    impacto_stock = []
+    for d in detalles:
+        mov = (
+            MovimientoStock.objects.filter(
+                lote=d.lote,
+                tipo=MovimientoStock.TipoMovimiento.EGRESO_DISPENSACION,
+                motivo=motivo_esperado,
+                cantidad=-d.cantidad,
+            )
+            .order_by('-fecha', '-id')
+            .first()
+        )
+        stock_ant = mov.cantidad_anterior if mov else (d.lote.cantidad_actual + d.cantidad)
+        stock_post = mov.cantidad_posterior if mov else d.lote.cantidad_actual
+        med = d.detalle_receta.medicamento
+        impacto_stock.append({
+            'medicamento': med,
+            'lote': d.lote,
+            'cantidad_entregada': d.cantidad,
+            'stock_anterior': stock_ant,
+            'stock_posterior': stock_post,
+            'stock_actual_lote': d.lote.cantidad_actual,
+            'stock_total_med': med.stock_total,
+            'en_quiebre': med.en_quiebre,
+        })
     return render(request, 'dispensacion/dispensacion_detalle.html', {
         'dispensacion': dispensacion,
         'detalles': detalles,
+        'impacto_stock': impacto_stock,
     })

@@ -155,7 +155,11 @@
                     <div class="d-flex align-items-center gap-2">
                         <span class="small">Prescrito: <strong>{{ item.detalle.cantidad_prescrita }}</strong> | Dispensado: <strong>{{ item.detalle.cantidad_dispensada }}</strong> | Pendiente: <strong class="text-danger">{{ item.detalle.cantidad_pendiente }}</strong></span>
                         {% if user.rol == 'admin' and item.detalle.cantidad_dispensada == 0 and receta.estado == 'pendiente' %}
-                        <form method="post" class="m-0" onsubmit="return confirm('¿Quitar {{ item.detalle.medicamento.nombre_generico }} de esta receta?');">
+                        <form method="post" class="m-0"
+                              data-confirm="¿Quitar {{ item.detalle.medicamento.nombre_generico }} de esta receta?"
+                              data-confirm-title="Quitar medicamento de la receta"
+                              data-confirm-btn="Sí, quitar"
+                              data-confirm-variant="danger">
                             {% csrf_token %}
                             <input type="hidden" name="accion" value="eliminar_detalle_receta">
                             <input type="hidden" name="detalle_id" value="{{ item.detalle.pk }}">

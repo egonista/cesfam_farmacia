@@ -15,7 +15,20 @@
     <!-- Google Fonts (Inter) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- CSS Institucional INACAP + CESFAM -->
-    <link rel="stylesheet" href="{% static 'css/cesfam.css' %}?v=20261123v6">
+    <link rel="stylesheet" href="{% static 'css/cesfam.css' %}?v=20261124a11y3">
+    <script>
+    (function() {
+        try {
+            var root = document.documentElement;
+            var font = localStorage.getItem('cesfam_a11y_font');
+            if (font === 'sm') root.classList.add('font-sm');
+            else if (font === 'lg') root.classList.add('font-lg');
+            if (localStorage.getItem('cesfam_a11y_contrast') === '1') {
+                root.classList.add('high-contrast');
+            }
+        } catch (e) {}
+    })();
+    </script>
     {% block extra_css %}{% endblock %}
 </head>
 <body class="d-flex flex-column min-vh-100">
@@ -47,22 +60,19 @@
             <!-- Selector Rápido de Rol (1-Clic), Escenario Activo y Perfil de Usuario -->
             <div class="d-flex align-items-center gap-2 ms-auto">
                 {% if escenario_activo %}
-                {% if user.rol == 'admin' %}
-                <a href="{% url 'core:escenario_list' %}"
-                   class="badge rounded-pill text-decoration-none bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1 fw-semibold d-none d-lg-inline-flex align-items-center gap-1 text-truncate"
-                   style="max-width: 280px; font-size: 0.72rem;"
-                   title="Escenario Activo: {{ escenario_activo.nombre }}">
-                    <i class="bi bi-easel2-fill flex-shrink-0"></i>
+                <button type="button"
+                        class="badge rounded-pill bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1 fw-semibold d-none d-lg-inline-flex align-items-center gap-1 text-truncate"
+                        style="max-width: 280px; font-size: 0.72rem; cursor: pointer;"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modalEscenarioActivo"
+                        aria-label="Ver detalles e indicaciones del escenario activo: {{ escenario_activo.nombre }}"
+                        title="Clic para ver el escenario activo y las indicaciones del taller">
+                    <i class="bi bi-easel2-fill flex-shrink-0" aria-hidden="true"></i>
                     <span class="text-truncate">Escenario Activo: {{ escenario_activo.nombre }}</span>
-                </a>
-                {% else %}
-                <span class="badge rounded-pill bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1 fw-semibold d-none d-lg-inline-flex align-items-center gap-1 text-truncate"
-                      style="max-width: 280px; font-size: 0.72rem;"
-                      title="Escenario Activo: {{ escenario_activo.nombre }}">
-                    <i class="bi bi-easel2-fill flex-shrink-0"></i>
-                    <span class="text-truncate">Escenario Activo: {{ escenario_activo.nombre }}</span>
-                </span>
-                {% endif %}
+                    {% if escenario_activo.consignas_personalizadas and escenario_activo.mostrar_consigna_a_estudiantes or user.rol == 'admin' and escenario_activo.consignas_personalizadas %}
+                    <i class="bi bi-info-circle flex-shrink-0" aria-hidden="true"></i>
+                    {% endif %}
+                </button>
                 {% endif %}
                 {% if mostrar_cambio_rapido %}
                 <!-- Selector 1-Clic de Simulación -->
@@ -88,6 +98,56 @@
                     </a>
                 </div>
                 {% endif %}
+
+                <!-- Botón Compacto de Accesibilidad (a11y) -->
+                <div class="a11y-control-wrap position-relative flex-shrink-0">
+                    <button type="button"
+                            id="a11yTriggerBtn"
+                            class="a11y-trigger-btn"
+                            aria-label="Opciones de accesibilidad"
+                            title="Opciones de accesibilidad"
+                            aria-expanded="false"
+                            aria-haspopup="true"
+                            aria-controls="a11yMenu">
+                        <i class="bi bi-universal-access" aria-hidden="true"></i>
+                    </button>
+                    <div id="a11yMenu"
+                         class="a11y-popover"
+                         role="dialog"
+                         aria-label="Opciones de accesibilidad"
+                         hidden>
+                        <div class="d-flex align-items-center justify-content-between pb-2 mb-2 border-bottom">
+                            <span class="fw-bold small text-dark">
+                                <i class="bi bi-universal-access text-danger me-1" aria-hidden="true"></i>Accesibilidad
+                            </span>
+                            <button type="button" class="btn-close" style="font-size: 0.65rem;" id="a11yCloseBtn" aria-label="Cerrar menú de accesibilidad"></button>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="small fw-semibold text-muted mb-1">Tamaño de texto</div>
+                            <div class="btn-group btn-group-sm w-100" role="group" aria-label="Tamaño de texto">
+                                <button type="button" class="btn btn-outline-secondary a11y-font-btn" data-a11y-font="sm" aria-pressed="false" title="Texto pequeño (90%)">A-</button>
+                                <button type="button" class="btn btn-outline-secondary a11y-font-btn" data-a11y-font="md" aria-pressed="true" title="Texto normal (100%)">A</button>
+                                <button type="button" class="btn btn-outline-secondary a11y-font-btn" data-a11y-font="lg" aria-pressed="false" title="Texto grande (112%)">A+</button>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="a11yToggleContrast">
+                                <label class="form-check-label small fw-semibold text-dark" for="a11yToggleContrast">
+                                    Modo Alto Contraste
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="pt-2 border-top text-end">
+                            <button type="button" id="a11yResetBtn" class="btn btn-link btn-sm text-decoration-none text-muted p-0 small">
+                                <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>Restablecer
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Tarjeta de Usuario Activo (Orden natural Izquierda -> Derecha, amplia y limpia) -->
                 <div class="user-profile-pill flex-shrink-0">
@@ -136,159 +196,119 @@
                 </div>
 
                 <!-- Lista de Navegación Lateral -->
-                <nav>
+                <nav class="d-flex flex-column gap-1">
                     <!-- 1. Dashboard -->
                     <a href="{% url 'core:dashboard' %}"
                        class="sidebar-nav-link {% if request.path == '/' %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-grid-1x2-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Dashboard & Indicadores</div>
-                                <div class="nav-desc">Métricas operativas y alertas</div>
-                            </div>
-                        </div>
+                            <span class="nav-title">Dashboard</span>
+                        </span>
                     </a>
 
-                    <!-- 2. Dispensación Asistencial -->
+                    <!-- 2. Dispensación -->
                     {% if user.tiene_permiso_dispensacion %}
                     <a href="{% url 'dispensacion:dispensar' %}"
                        class="sidebar-nav-link {% if '/dispensacion/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-clipboard2-check-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Dispensación Asistencial</div>
-                                <div class="nav-desc">Entrega a $0 copago con FEFO</div>
-                            </div>
-                        </div>
-                        <span class="sidebar-badge sidebar-badge-green">$0 Copago</span>
+                            <span class="nav-title">Dispensación</span>
+                        </span>
                     </a>
                     {% endif %}
 
-                    <!-- 3. Inventario, Bodega & FEFO -->
+                    <!-- 3. Inventario y Lotes -->
                     {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
                     <a href="{% url 'farmacia:lote_list' %}"
                        class="sidebar-nav-link {% if '/farmacia/lotes/' in request.path or '/farmacia/movimientos/' in request.path or '/farmacia/alertas/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-boxes fs-6"></i>
-                            <div>
-                                <div class="nav-title">Inventario, Bodega & FEFO</div>
-                                <div class="nav-desc">Bodega vs. Vitrina y lotes</div>
-                            </div>
-                        </div>
-                        <span class="sidebar-badge sidebar-badge-amber">FEFO</span>
+                            <span class="nav-title">Inventario y Lotes</span>
+                        </span>
                     </a>
                     {% endif %}
 
-                    <!-- 4. Catálogo de Medicamentos (Disponible para todos los roles; Clínico en modo Consulta) -->
+                    <!-- 4. Arsenal Farmacológico -->
                     <a href="{% url 'farmacia:medicamento_list' %}"
-                       class="sidebar-nav-link {% if '/farmacia/medicamentos/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                       class="sidebar-nav-link {% if '/farmacia/medicamentos/' in request.path or '/farmacia/arsenal/' in request.path %}active{% endif %}">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-capsule-pill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Arsenal Farmacológico</div>
-                                <div class="nav-desc">{% if user.rol == 'clinico' %}Consulta de stock disponible{% else %}Catálogo y stock crítico APS{% endif %}</div>
-                            </div>
-                        </div>
-                        {% if user.rol == 'clinico' %}<span class="sidebar-badge sidebar-badge-green">Consulta</span>{% endif %}
+                            <span class="nav-title">Arsenal Farmacológico</span>
+                        </span>
                     </a>
 
-                    <!-- 4b. Abastecimiento y Pedidos CENABAST -->
+                    <!-- 5. Pedidos CENABAST -->
                     {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
                     <a href="{% url 'farmacia:orden_list' %}"
                        class="sidebar-nav-link {% if '/farmacia/abastecimiento/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-truck fs-6"></i>
-                            <div>
-                                <div class="nav-title">Pedidos & CENABAST</div>
-                                <div class="nav-desc">Órdenes por quiebre y remesas</div>
-                            </div>
-                        </div>
-                        <span class="sidebar-badge sidebar-badge-amber">Auto</span>
+                            <span class="nav-title">Pedidos CENABAST</span>
+                        </span>
                     </a>
                     {% endif %}
 
-                    <!-- 5. Pacientes & Recetas GES (Oculto para Personal Clínico) -->
+                    <!-- 6. Pacientes y GES -->
                     {% if user.rol == 'admin' or user.rol == 'quimico' or user.rol == 'tecnico' %}
                     <a href="{% url 'core:paciente_list' %}"
                        class="sidebar-nav-link {% if '/pacientes/' in request.path or '/ges/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-people-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Pacientes & Programas GES</div>
-                                <div class="nav-desc">Beneficiarios y cuotas de retiro</div>
-                            </div>
-                        </div>
+                            <span class="nav-title">Pacientes y GES</span>
+                        </span>
                     </a>
                     {% endif %}
 
-                    <!-- 6. Libro Oficial de Controlados -->
+                    <!-- 7. Libro de Controlados -->
                     {% if user.tiene_permiso_controlados %}
                     <a href="{% url 'controlados:libro' %}"
                        class="sidebar-nav-link {% if '/controlados/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-journal-bookmark-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Libro de Controlados</div>
-                                <div class="nav-desc">Estupefacientes y psicotrópicos</div>
-                            </div>
-                        </div>
-                        <span class="sidebar-badge sidebar-badge-red">Foliado</span>
+                            <span class="nav-title">Libro de Controlados</span>
+                        </span>
                     </a>
                     {% endif %}
 
-                    <!-- 7. Carros Clínicos -->
+                    <!-- 8. Carros Clínicos -->
                     {% if user.tiene_permiso_carros %}
                     <a href="{% url 'carros_clinicos:carro_list' %}"
                        class="sidebar-nav-link {% if '/carros/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-heart-pulse-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Carros Clínicos</div>
-                                <div class="nav-desc">Carro de Paro y Unidosis</div>
-                            </div>
-                        </div>
-                        <span class="sidebar-badge sidebar-badge-red">Urgencia</span>
+                            <span class="nav-title">Carros Clínicos</span>
+                        </span>
                     </a>
                     {% endif %}
 
-                    <!-- 8. Reportes & Auditoría (Exclusivo Administrador y Químico Farmacéutico) -->
+                    <!-- 9. Reportes y Auditoría -->
                     {% if user.rol == 'admin' or user.rol == 'quimico' %}
                     <a href="{% url 'core:auditoria_list' %}"
                        class="sidebar-nav-link {% if '/auditoria/' in request.path or '/reportes/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-file-earmark-spreadsheet-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Reportes & Auditoría</div>
-                                <div class="nav-desc">Planillas, PDF y bitácora</div>
-                            </div>
-                        </div>
+                            <span class="nav-title">Reportes y Auditoría</span>
+                        </span>
                     </a>
                     {% endif %}
 
-                    <!-- 9. Gestión de Usuarios -->
+                    <!-- 10. Gestión de Usuarios -->
                     {% if user.rol == 'admin' %}
                     <a href="{% url 'core:usuario_list' %}"
                        class="sidebar-nav-link {% if '/usuarios/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-shield-lock-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Gestión de Usuarios</div>
-                                <div class="nav-desc">Dotación y perfiles de acceso</div>
-                            </div>
-                        </div>
+                            <span class="nav-title">Gestión de Usuarios</span>
+                        </span>
                     </a>
 
-                    <!-- 10. Escenarios de Simulación (Exclusivo Administrador) -->
+                    <!-- 11. Escenarios de Simulación -->
                     <a href="{% url 'core:escenario_list' %}"
                        class="sidebar-nav-link {% if '/admin-panel/escenarios/' in request.path or '/admin-panel/banco-pacientes/' in request.path %}active{% endif %}">
-                        <div class="d-flex align-items-center gap-3">
+                        <span class="d-flex align-items-center gap-3">
                             <i class="bi bi-easel2-fill fs-6"></i>
-                            <div>
-                                <div class="nav-title">Escenarios de Simulación</div>
-                                <div class="nav-desc">Evaluaciones y talleres docentes</div>
-                            </div>
-                        </div>
-                        <span class="sidebar-badge sidebar-badge-amber">Docente</span>
+                            <span class="nav-title">Escenarios de Simulación</span>
+                        </span>
                     </a>
                     {% endif %}
                 </nav>
@@ -569,6 +589,349 @@
         } else {
             inicializarFiltrosEnVivo();
         }
+    })();
+    </script>
+    <script>
+    /* Control de Accesibilidad (a11y): tamaño de texto (A-/A/A+), alto contraste y persistencia localStorage */
+    (function() {
+        const trigger = document.getElementById('a11yTriggerBtn');
+        const menu = document.getElementById('a11yMenu');
+        const closeBtn = document.getElementById('a11yCloseBtn');
+        const resetBtn = document.getElementById('a11yResetBtn');
+        const contrastToggle = document.getElementById('a11yToggleContrast');
+        const fontBtns = Array.from(document.querySelectorAll('.a11y-font-btn'));
+        if (!trigger || !menu) return;
+
+        const KEY_FONT = 'cesfam_a11y_font';
+        const KEY_CONTRAST = 'cesfam_a11y_contrast';
+        const root = document.documentElement;
+
+        function aplicarEstado(font, contrast) {
+            root.classList.remove('font-sm', 'font-lg');
+            if (font === 'sm') root.classList.add('font-sm');
+            else if (font === 'lg') root.classList.add('font-lg');
+
+            root.classList.toggle('high-contrast', Boolean(contrast));
+
+            fontBtns.forEach(function(btn) {
+                const activo = btn.getAttribute('data-a11y-font') === (font || 'md');
+                btn.setAttribute('aria-pressed', activo ? 'true' : 'false');
+                btn.classList.toggle('btn-dark', activo);
+                btn.classList.toggle('btn-outline-secondary', !activo);
+            });
+            if (contrastToggle) contrastToggle.checked = Boolean(contrast);
+
+            const tieneAjuste = (font && font !== 'md') || Boolean(contrast);
+            trigger.classList.toggle('a11y-active', tieneAjuste);
+        }
+
+        function leerPreferencias() {
+            let font = 'md';
+            let contrast = false;
+            try {
+                const f = localStorage.getItem(KEY_FONT);
+                if (f === 'sm' || f === 'md' || f === 'lg') font = f;
+                contrast = localStorage.getItem(KEY_CONTRAST) === '1';
+            } catch (e) {}
+            return { font: font, contrast: contrast };
+        }
+
+        function guardarPreferencias(font, contrast) {
+            try {
+                localStorage.setItem(KEY_FONT, font);
+                localStorage.setItem(KEY_CONTRAST, contrast ? '1' : '0');
+            } catch (e) {}
+        }
+
+        function abrirMenu() {
+            menu.hidden = false;
+            trigger.setAttribute('aria-expanded', 'true');
+        }
+
+        function cerrarMenu(devolverFoco) {
+            if (menu.hidden) return;
+            menu.hidden = true;
+            trigger.setAttribute('aria-expanded', 'false');
+            if (devolverFoco) trigger.focus();
+        }
+
+        trigger.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (menu.hidden) abrirMenu();
+            else cerrarMenu(false);
+        });
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function() { cerrarMenu(true); });
+        }
+
+        fontBtns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const nuevoFont = btn.getAttribute('data-a11y-font') || 'md';
+                const actual = leerPreferencias();
+                guardarPreferencias(nuevoFont, actual.contrast);
+                aplicarEstado(nuevoFont, actual.contrast);
+            });
+        });
+
+        if (contrastToggle) {
+            contrastToggle.addEventListener('change', function() {
+                const actual = leerPreferencias();
+                const nuevoContraste = contrastToggle.checked;
+                guardarPreferencias(actual.font, nuevoContraste);
+                aplicarEstado(actual.font, nuevoContraste);
+            });
+        }
+
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function() {
+                try {
+                    localStorage.removeItem(KEY_FONT);
+                    localStorage.removeItem(KEY_CONTRAST);
+                } catch (e) {}
+                aplicarEstado('md', false);
+            });
+        }
+
+        document.addEventListener('click', function(ev) {
+            if (!menu.hidden && !menu.contains(ev.target) && !trigger.contains(ev.target)) {
+                cerrarMenu(false);
+            }
+        });
+
+        document.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Escape' && !menu.hidden) {
+                cerrarMenu(true);
+            }
+        });
+
+        const prefs = leerPreferencias();
+        aplicarEstado(prefs.font, prefs.contrast);
+    })();
+    </script>
+
+    {% if user.is_authenticated and escenario_activo %}
+    <!-- Modal: Detalle e Indicaciones del Escenario Activo -->
+    <div class="modal fade no-print" id="modalEscenarioActivo" tabindex="-1" aria-labelledby="modalEscenarioActivoTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 14px; overflow: hidden;">
+                <div class="modal-header border-bottom bg-light px-4 py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-success bg-opacity-10 text-success flex-shrink-0"
+                              style="width: 38px; height: 38px; font-size: 1.15rem;">
+                            <i class="bi bi-easel2-fill" aria-hidden="true"></i>
+                        </span>
+                        <div>
+                            <div class="text-uppercase text-success fw-bold" style="font-size: 0.7rem; letter-spacing: 0.04em;">
+                                Escenario Activo
+                            </div>
+                            <h5 class="modal-title fw-bolder text-dark mb-0" id="modalEscenarioActivoTitulo">
+                                {{ escenario_activo.nombre }}
+                            </h5>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body px-4 py-3">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <span class="badge {% if escenario_activo.modalidad == 'INCIDENCIAS' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                            {{ escenario_activo.get_modalidad_display }}
+                        </span>
+                        {% if escenario_activo.descripcion %}
+                        <span class="small text-muted">{{ escenario_activo.descripcion }}</span>
+                        {% endif %}
+                    </div>
+
+                    {% if escenario_activo.consignas_personalizadas and escenario_activo.mostrar_consigna_a_estudiantes %}
+                    <div class="rounded-3 border border-primary border-opacity-25 bg-primary bg-opacity-10 p-3">
+                        <div class="fw-bold small text-primary mb-2">
+                            <i class="bi bi-chat-square-text-fill me-1" aria-hidden="true"></i>Consigna del Taller Activo
+                        </div>
+                        <div class="small text-dark" style="line-height: 1.6;">
+                            {% for linea in escenario_activo.consignas_personalizadas.splitlines %}
+                                {% if linea.strip %}
+                                <p class="{% if forloop.first and not forloop.last %}fw-semibold mb-2{% elif forloop.last %}mb-0{% else %}mb-2{% endif %}">{{ linea }}</p>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% elif user.rol == 'admin' and escenario_activo.consignas_personalizadas %}
+                    <div class="rounded-3 border bg-light p-3">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <span class="fw-bold small text-dark">
+                                <i class="bi bi-eye-slash me-1 text-muted" aria-hidden="true"></i>Consigna Docente (oculta a estudiantes)
+                            </span>
+                        </div>
+                        <div class="small text-dark" style="line-height: 1.6;">
+                            {% for linea in escenario_activo.consignas_personalizadas.splitlines %}
+                                {% if linea.strip %}
+                                <p class="{% if forloop.first and not forloop.last %}fw-semibold mb-2{% elif forloop.last %}mb-0{% else %}mb-2{% endif %}">{{ linea }}</p>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="small text-muted mb-0">
+                        <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Este escenario no tiene indicaciones adicionales publicadas para el taller.
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="modal-footer border-0 bg-light px-4 py-3 d-flex justify-content-between align-items-center">
+                    <div>
+                        {% if user.rol == 'admin' %}
+                        <a href="{% url 'core:escenario_list' %}" class="btn btn-outline-dark btn-sm fw-semibold">
+                            <i class="bi bi-sliders me-1" aria-hidden="true"></i>Administrar Escenarios
+                        </a>
+                        {% endif %}
+                    </div>
+                    <button type="button" class="btn btn-dark btn-sm px-3 fw-semibold" data-bs-dismiss="modal">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Modal de Confirmación Personalizado y Reutilizable (reemplaza confirm() nativo) -->
+    <div class="modal fade no-print" id="modalConfirmacionGlobal" tabindex="-1" aria-labelledby="modalConfirmTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 14px; overflow: hidden;">
+                <div class="modal-body p-4 text-center">
+                    <div id="modalConfirmIconoWrap"
+                         class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
+                         style="width: 56px; height: 56px; font-size: 1.55rem; background-color: rgba(220, 38, 38, 0.1); color: #DC2626;">
+                        <i id="modalConfirmIcono" class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                    </div>
+                    <h5 class="fw-bolder text-dark mb-2" id="modalConfirmTitulo">Confirmar acción</h5>
+                    <p class="text-muted small mb-0" id="modalConfirmMensaje" style="line-height: 1.5;"></p>
+                </div>
+                <div class="modal-footer border-0 bg-light px-4 py-3 d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm px-3 fw-semibold" data-bs-dismiss="modal">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn btn-danger btn-sm px-3 fw-semibold" id="btnConfirmarGlobal">
+                        Confirmar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+    /* API global de confirmación personalizada + interceptación declarativa data-confirm */
+    (function() {
+        const modalEl = document.getElementById('modalConfirmacionGlobal');
+        const tituloEl = document.getElementById('modalConfirmTitulo');
+        const mensajeEl = document.getElementById('modalConfirmMensaje');
+        const iconoWrap = document.getElementById('modalConfirmIconoWrap');
+        const iconoEl = document.getElementById('modalConfirmIcono');
+        const btnOk = document.getElementById('btnConfirmarGlobal');
+        if (!modalEl || !btnOk) return;
+
+        const VARIANTES = {
+            danger: {
+                btnClass: 'btn btn-danger btn-sm px-3 fw-semibold',
+                icon: 'bi bi-exclamation-triangle-fill',
+                bg: 'rgba(220, 38, 38, 0.1)',
+                color: '#DC2626'
+            },
+            success: {
+                btnClass: 'btn btn-success btn-sm px-3 fw-semibold',
+                icon: 'bi bi-check-circle-fill',
+                bg: 'rgba(16, 185, 129, 0.12)',
+                color: '#059669'
+            },
+            primary: {
+                btnClass: 'btn btn-primary btn-sm px-3 fw-semibold',
+                icon: 'bi bi-question-circle-fill',
+                bg: 'rgba(37, 99, 235, 0.1)',
+                color: '#2563EB'
+            },
+            warning: {
+                btnClass: 'btn btn-warning btn-sm px-3 fw-semibold text-dark',
+                icon: 'bi bi-exclamation-circle-fill',
+                bg: 'rgba(245, 158, 11, 0.14)',
+                color: '#D97706'
+            }
+        };
+
+        let accionPendiente = null;
+
+        window.abrirConfirmacion = function(opciones) {
+            const opts = opciones || {};
+            const cfg = VARIANTES[opts.variante] || VARIANTES.danger;
+            tituloEl.textContent = opts.titulo || 'Confirmar acción';
+            mensajeEl.textContent = opts.mensaje || '¿Deseas continuar con esta operación?';
+            btnOk.textContent = opts.textoConfirmar || 'Confirmar';
+            btnOk.className = cfg.btnClass;
+            iconoEl.className = cfg.icon;
+            iconoWrap.style.backgroundColor = cfg.bg;
+            iconoWrap.style.color = cfg.color;
+            accionPendiente = typeof opts.onConfirm === 'function' ? opts.onConfirm : null;
+
+            const instancia = bootstrap.Modal.getOrCreateInstance(modalEl);
+            instancia.show();
+        };
+
+        btnOk.addEventListener('click', function() {
+            const cb = accionPendiente;
+            accionPendiente = null;
+            const instancia = bootstrap.Modal.getOrCreateInstance(modalEl);
+            instancia.hide();
+            if (cb) cb();
+        });
+
+        modalEl.addEventListener('hidden.bs.modal', function() {
+            accionPendiente = null;
+        });
+
+        // Soporte declarativo global para <form data-confirm="..."> (sobrevive al filtrado en vivo)
+        document.addEventListener('submit', function(ev) {
+            const form = ev.target;
+            if (!form || !form.dataset || !form.dataset.confirm) return;
+            if (form.dataset.confirmado === '1') {
+                delete form.dataset.confirmado;
+                return;
+            }
+            ev.preventDefault();
+            window.abrirConfirmacion({
+                titulo: form.dataset.confirmTitle || 'Confirmar acción',
+                mensaje: form.dataset.confirm,
+                textoConfirmar: form.dataset.confirmBtn || 'Confirmar',
+                variante: form.dataset.confirmVariant || 'danger',
+                onConfirm: function() {
+                    form.dataset.confirmado = '1';
+                    form.submit();
+                }
+            });
+        });
+
+        // Soporte declarativo global para <a data-confirm="..."> o <button data-confirm="...">
+        document.addEventListener('click', function(ev) {
+            const el = ev.target && ev.target.closest ? ev.target.closest('a[data-confirm], button[data-confirm]') : null;
+            if (!el) return;
+            if (el.dataset.confirmado === '1') {
+                delete el.dataset.confirmado;
+                return;
+            }
+            ev.preventDefault();
+            window.abrirConfirmacion({
+                titulo: el.dataset.confirmTitle || 'Confirmar acción',
+                mensaje: el.dataset.confirm,
+                textoConfirmar: el.dataset.confirmBtn || 'Confirmar',
+                variante: el.dataset.confirmVariant || 'danger',
+                onConfirm: function() {
+                    if (el.tagName === 'A' && el.href) {
+                        window.location.href = el.href;
+                    } else if (el.form) {
+                        el.form.submit();
+                    } else {
+                        el.dataset.confirmado = '1';
+                        el.click();
+                    }
+                }
+            });
+        });
     })();
     </script>
     {% endif %}

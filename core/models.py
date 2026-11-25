@@ -424,9 +424,9 @@ class EscenarioSimulacion(models.Model):
         """
         Aplica las incidencias clínicas/logísticas configuradas en este escenario al activarlo
         (únicamente cuando modalidad == INCIDENCIAS):
-        - Quiebre de stock en vitrina del fármaco seleccionado
-        - Alerta FEFO / lote crítico próximo a vencer (12 días)
-        - Consumo de emergencia en el Carro de Paro
+        - Quiebre de stock (bajo stock mínimo ministerial) del fármaco seleccionado
+        - Alerta FEFO (lote crítico a 12 días) + lote vencido en Vitrina (para baja a cuarentena)
+        - Consumo de emergencia en el Carro de Paro (2 ampollas de Adrenalina por Personal Clínico)
         """
         if self.modalidad != self.Modalidad.INCIDENCIAS:
             return []
@@ -439,7 +439,7 @@ class EscenarioSimulacion(models.Model):
         hoy = date.today()
         vitrina = Ubicacion.objects.filter(tipo=Ubicacion.TipoUbicacion.VITRINA, activa=True).first()
 
-        # 1. Simular quiebre de stock en vitrina (bajo stock mínimo ministerial)
+        # 1. Simular quiebre de stock (bajo stock mínimo ministerial)
         if self.simular_quiebre and self.medicamento_quiebre_id:
             med = self.medicamento_quiebre
             objetivo = max(1, min(5, med.stock_minimo - 1)) if med.stock_minimo > 1 else 0
@@ -482,22 +482,58 @@ class EscenarioSimulacion(models.Model):
                     ubicacion=vitrina,
                     proveedor='Simulación Docente CESFAM',
                 )
+
+            # Si aún existe stock en Bodega que impide entrar en quiebre real, ajustarlo para disparar alerta CENABAST
+            if med.stock_total >= med.stock_minimo:
+                lotes_bodega = Lote.objects.filter(
+                    medicamento=med,
+                    activo=True,
+                    en_cuarentena=False,
+                    fecha_vencimiento__gt=hoy,
+                    ubicacion__tipo=Ubicacion.TipoUbicacion.BODEGA,
+                    cantidad_actual__gt=0,
+                ).order_by('fecha_vencimiento')
+                for lote_b in lotes_bodega:
+                    anterior_val = lote_b.cantidad_actual
+                    lote_b.cantidad_actual = 0
+                    lote_b.save(update_fields=['cantidad_actual'])
+                    MovimientoStock.objects.create(
+                        lote=lote_b,
+                        tipo=MovimientoStock.TipoMovimiento.AJUSTE,
+                        cantidad=anterior_val,
+                        cantidad_anterior=anterior_val,
+                        cantidad_posterior=0,
+                        ubicacion_origen=lote_b.ubicacion,
+                        usuario=usuario,
+                        motivo=f'Incidencia simulada (Quiebre total de stock para pedido CENABAST) — Escenario: {self.nombre}',
+                    )
+
             AlertaSistema.objects.create(
                 tipo='quiebre_stock',
                 nivel='CRITICO',
                 medicamento=f'{med.nombre_generico} {med.concentracion}',
                 ubicacion=vitrina.nombre if vitrina else 'Vitrina de Dispensación',
-                mensaje=f'Quiebre simulado por escenario "{self.nombre}": stock en vitrina reducido a {objetivo} (mínimo: {med.stock_minimo}).',
+                mensaje=f'Quiebre simulado por escenario "{self.nombre}": stock disponible reducido a {med.stock_total} (mínimo: {med.stock_minimo}).',
             )
-            resumen.append(f'Quiebre en vitrina de {med.nombre_generico} (stock: {objetivo}/{med.stock_minimo})')
+            resumen.append(f'Quiebre de stock de {med.nombre_generico} (stock: {med.stock_total}/{med.stock_minimo})')
 
-        # 2. Simular alerta FEFO / lote crítico (12 días para vencer)
+        # 2. Simular alerta FEFO (lote crítico a 12 días) + lote vencido en Vitrina para Baja a Cuarentena
         if self.simular_alerta_fefo and vitrina:
-            med_fefo = (
-                self.medicamento_quiebre
-                or Medicamento.objects.filter(activo=True, es_controlado=False).order_by('id').first()
-                or Medicamento.objects.filter(activo=True).order_by('id').first()
-            )
+            qs_no_ctrl = Medicamento.objects.filter(activo=True, es_controlado=False)
+            if self.simular_quiebre and self.medicamento_quiebre_id:
+                qs_distinto = qs_no_ctrl.exclude(pk=self.medicamento_quiebre_id)
+                med_fefo = (
+                    qs_distinto.filter(requiere_receta=True).order_by('id').first()
+                    or qs_distinto.order_by('id').first()
+                    or self.medicamento_quiebre
+                )
+            else:
+                med_fefo = (
+                    self.medicamento_quiebre
+                    or qs_no_ctrl.filter(requiere_receta=True).order_by('id').first()
+                    or qs_no_ctrl.order_by('id').first()
+                    or Medicamento.objects.filter(activo=True).order_by('id').first()
+                )
             if med_fefo:
                 venc_critico = hoy + timedelta(days=12)
                 num_lote = f'SIM-FEFO-{self.pk}'
@@ -527,31 +563,69 @@ class EscenarioSimulacion(models.Model):
                 )
                 resumen.append(f'Lote crítico FEFO {lote_crit.numero_lote} ({med_fefo.nombre_generico}, vence en 12 días)')
 
-        # 3. Simular consumo de emergencia en Carro de Paro
+                # Lote vencido en Vitrina para demostrar bloqueo FEFO y Baja a Cuarentena por Q.F.
+                num_lote_venc = f'SIM-VENC-{self.pk}'
+                lote_venc, _ = Lote.objects.update_or_create(
+                    medicamento=med_fefo,
+                    numero_lote=num_lote_venc,
+                    defaults={
+                        'fecha_fabricacion': hoy - timedelta(days=365),
+                        'fecha_vencimiento': hoy - timedelta(days=7),
+                        'cantidad_inicial': 10,
+                        'cantidad_actual': 10,
+                        'ubicacion': vitrina,
+                        'proveedor': 'Simulación Docente — Pendiente Baja a Cuarentena',
+                        'activo': True,
+                        'en_cuarentena': False,
+                        'motivo_cuarentena': '',
+                    },
+                )
+                AlertaSistema.objects.create(
+                    tipo='lote_vencido',
+                    nivel='CRITICO',
+                    medicamento=f'{med_fefo.nombre_generico} {med_fefo.concentracion}',
+                    lote=lote_venc.numero_lote,
+                    dias_restantes=-7,
+                    ubicacion=vitrina.nombre,
+                    mensaje=f'Lote vencido en vitrina ({lote_venc.numero_lote}, vencido hace 7 días) pendiente de baja a cuarentena — Escenario "{self.nombre}".',
+                )
+                resumen.append(f'Lote vencido en vitrina {lote_venc.numero_lote} ({med_fefo.nombre_generico}, pendiente cuarentena)')
+
+        # 3. Simular consumo de emergencia en Carro de Paro (2 ampollas de Adrenalina por Personal Clínico)
         if self.simular_consumo_carro:
             carro = (
                 CarroClinico.objects.filter(activo=True, tipo=CarroClinico.TipoCarro.PARO).first()
                 or CarroClinico.objects.filter(activo=True).first()
             )
             if carro:
-                item = carro.plantilla_items.filter(cantidad_actual__gt=0).select_related('medicamento').first()
+                item = (
+                    carro.plantilla_items.filter(
+                        medicamento__nombre_generico__icontains='Adrenalina',
+                        cantidad_requerida__gt=0,
+                    ).select_related('medicamento').first()
+                    or carro.plantilla_items.filter(cantidad_requerida__gt=0).select_related('medicamento').first()
+                )
                 if item:
-                    consumir = min(2, item.cantidad_actual)
-                    item.cantidad_actual = max(0, item.cantidad_actual - consumir)
+                    consumir = min(2, item.cantidad_requerida)
+                    item.cantidad_actual = max(0, item.cantidad_requerida - consumir)
                     item.save(update_fields=['cantidad_actual'])
                     carro.estado = CarroClinico.EstadoCarro.INCOMPLETO
                     carro.numero_precinto = ''
                     carro.save(update_fields=['estado', 'numero_precinto'])
+                    clinico = (
+                        Usuario.objects.filter(rol=Usuario.Rol.PERSONAL_CLINICO, is_active=True).order_by('id').first()
+                        or usuario
+                    )
                     ConsumoCarroClinico.objects.create(
                         carro=carro,
                         item=item,
                         cantidad_consumida=consumir,
-                        motivo=f'Emergencia simulada (Código Azul) — Escenario: {self.nombre}',
+                        motivo=f'Emergencia simulada (Código Azul — Reanimación) — Escenario: {self.nombre}',
                         paciente_atendido='Caso Simulado de Urgencia',
-                        personal_clinico=usuario,
+                        personal_clinico=clinico,
                     )
                     resumen.append(
-                        f'Consumo en {carro.nombre}: -{consumir} {item.medicamento.nombre_generico} (requiere reposición y precinto)'
+                        f'Consumo en {carro.nombre}: -{consumir} {item.medicamento.nombre_generico} por {clinico.get_full_name() or clinico.username} (Precinto Roto — Pendiente Resellado)'
                     )
 
         return resumen

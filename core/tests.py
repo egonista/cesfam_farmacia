@@ -3220,6 +3220,441 @@ class PruebasIntegralesCESFAM(TestCase):
         self.client.login(username='tecnico_test', password='Password123!')
         self.assertEqual(self.client.get(url_respaldo).status_code, 403)
 
+    def test_paginas_error_personalizadas_400_403_404_500_y_csrf(self):
+        """
+        Verifica:
+        1) Handlers oficiales handler400/403/404/500 en config.urls y CSRF_FAILURE_VIEW en settings.
+        2) Rutas /errores/400/, /errores/403/, /errores/404/, /errores/500/, /errores/csrf/ y /404-test
+           devuelven el código HTTP exacto y estética institucional CESFAM · INACAP.
+        3) 500.html es 100% autocontenida (0 queries a BD).
+        4) Botón 'Ir al Login' sin sesión vs 'Volver al Dashboard' con sesión.
+        5) Fallo real de CSRF muestra mensaje amigable sin detalles técnicos.
+        6) URL inexistente en DEBUG=True renderiza nuestra 404 personalizada (no página amarilla de Django).
+        """
+        from django.conf import settings as django_settings
+        from django.test import override_settings, RequestFactory
+        import config.urls as root_urls
+        from core.error_views import error_500
+
+        # 1. Handlers oficiales y CSRF_FAILURE_VIEW
+        self.assertEqual(root_urls.handler400, 'core.error_views.error_400')
+        self.assertEqual(root_urls.handler403, 'core.error_views.error_403')
+        self.assertEqual(root_urls.handler404, 'core.error_views.error_404')
+        self.assertEqual(root_urls.handler500, 'core.error_views.error_500')
+        self.assertEqual(django_settings.CSRF_FAILURE_VIEW, 'core.error_views.csrf_failure')
+
+        # 2. Sin sesión: muestra 'Ir al Login' y código HTTP exacto
+        self.client.logout()
+        for codigo, expected_status in (('400', 400), ('403', 403), ('404', 404), ('500', 500)):
+            resp = self.client.get(f'/errores/{codigo}/')
+            self.assertEqual(resp.status_code, expected_status)
+            html = resp.content.decode('utf-8')
+            self.assertIn(codigo, html)
+            self.assertIn('Farmacia Asistencial CESFAM', html)
+            self.assertIn('inacap_logo.png', html)
+            self.assertIn('Ir al Login', html)
+            self.assertNotIn('Traceback', html)
+
+        # /404-test y URL inexistente en DEBUG=True devuelven 404 personalizada
+        resp_404_test = self.client.get('/404-test')
+        self.assertEqual(resp_404_test.status_code, 404)
+        self.assertIn('Página no encontrada', resp_404_test.content.decode('utf-8'))
+
+        with override_settings(DEBUG=True):
+            resp_fake = self.client.get('/ruta-que-no-existe-en-vivo/')
+            self.assertEqual(resp_fake.status_code, 404)
+            html_fake = resp_fake.content.decode('utf-8')
+            self.assertIn('Página no encontrada', html_fake)
+            self.assertNotIn('Using the URLconf defined in', html_fake)
+
+        # 3. Con sesión: muestra 'Volver al Dashboard'
+        self.client.login(username='tecnico_test', password='Password123!')
+        for codigo, expected_status in (('400', 400), ('403', 403), ('404', 404), ('500', 500)):
+            resp = self.client.get(f'/errores/{codigo}/')
+            self.assertEqual(resp.status_code, expected_status)
+            self.assertIn('Volver al Dashboard', resp.content.decode('utf-8'))
+
+        # 4. handler500 directo ejecuta 0 queries a BD
+        rf = RequestFactory()
+        with self.assertNumQueries(0):
+            resp_500_direct = error_500(rf.get('/boom/'))
+        self.assertEqual(resp_500_direct.status_code, 500)
+        self.assertIn('Error interno del servidor', resp_500_direct.content.decode('utf-8'))
+
+        # 5. Fallo real de CSRF devuelve 403 amigable sin razón técnica
+        csrf_client = Client(enforce_csrf_checks=True)
+        resp_csrf = csrf_client.post(reverse('core:login'), {'username': 'admin', 'password': 'x'})
+        self.assertEqual(resp_csrf.status_code, 403)
+        html_csrf = resp_csrf.content.decode('utf-8')
+        self.assertIn('Tu sesión de formulario expiró, vuelve atrás y recarga la página', html_csrf)
+        self.assertNotIn('CSRF token missing', html_csrf)
+
+    def test_filtro_auditoria_y_actividad_reciente_por_rol_qf_vs_admin(self):
+        """
+        Verifica que el Químico Farmacéutico NO vea registros de ADMIN ni eventos de seguridad/sistema
+        (403, /simular-rol/, /admin-panel/, usuarios/secciones, escenarios, respaldo BD) ni en Dashboard
+        ni en Bitácora de Auditoría, mientras el Administrador mantiene acceso completo.
+        """
+        from core.models import AuditoriaInmutable
+
+        admin_u = Usuario.objects.create_user(
+            username='admin_aud_flt',
+            password='Password123!',
+            rut='10.777.888-0',
+            first_name='Admin',
+            last_name='Auditoria',
+            rol=Usuario.Rol.ADMINISTRADOR,
+        )
+        qf_u = Usuario.objects.create_user(
+            username='qf_aud_flt',
+            password='Password123!',
+            rut='10.888.999-2',
+            first_name='Quimico',
+            last_name='Supervisor',
+            rol=Usuario.Rol.QUIMICO_FARMACEUTICO,
+        )
+
+        tec_u = Usuario.objects.get(username='tecnico_test')
+
+        # Eventos que Q.F. NO debe ver (Admin + 403 + respaldo BD + usuarios + escenarios)
+        AuditoriaInmutable.objects.create(
+            usuario=admin_u, usuario_username=admin_u.username, rol='admin',
+            accion='Descarga de Respaldo de Base de Datos (JSON)',
+            entidad_afectada='cesfam_respaldo_bd_test.json',
+        )
+        AuditoriaInmutable.objects.create(
+            usuario=admin_u, usuario_username=admin_u.username, rol='admin',
+            accion='Creación de Sección / Curso',
+            entidad_afectada='Sección AP-N4-C9',
+        )
+        AuditoriaInmutable.objects.create(
+            usuario=qf_u, usuario_username=qf_u.username, rol='quimico',
+            accion='Acceso Denegado por Control de Rol (403)',
+            entidad_afectada='GET /admin-panel/escenarios/',
+        )
+        AuditoriaInmutable.objects.create(
+            usuario=tec_u, usuario_username=tec_u.username, rol='tecnico',
+            accion='Acceso Denegado por Control de Rol (403)',
+            entidad_afectada='GET /simular-rol/admin/',
+        )
+
+        # Eventos operativos farmacéuticos/clínicos que Q.F. SÍ debe ver
+        AuditoriaInmutable.objects.create(
+            usuario=tec_u, usuario_username=tec_u.username, rol='tecnico',
+            accion='Dispensación realizada',
+            entidad_afectada='Receta REC-QF-VIS-01',
+        )
+        AuditoriaInmutable.objects.create(
+            usuario=qf_u, usuario_username=qf_u.username, rol='quimico',
+            accion='Autorización Q.F. de Receta Controlada / Retenida',
+            entidad_afectada='Receta REC-CTRL-QF-01',
+        )
+        AuditoriaInmutable.objects.create(
+            usuario=tec_u, usuario_username=tec_u.username, rol='tecnico',
+            accion='Traspaso interno de inventario',
+            entidad_afectada='Lote L-TRASP-QF',
+        )
+
+        # 1. Vista del Q.F. en Dashboard y Bitácora: solo operativa, 0 admin y 0 bloqueos 403
+        self.client.login(username='qf_aud_flt', password='Password123!')
+        for url in (reverse('core:dashboard'), reverse('core:auditoria_list')):
+            html_qf = self.client.get(url).content.decode('utf-8')
+            self.assertIn('REC-QF-VIS-01', html_qf)
+            self.assertIn('REC-CTRL-QF-01', html_qf)
+            self.assertIn('L-TRASP-QF', html_qf)
+            self.assertNotIn('admin_aud_flt', html_qf)
+            self.assertNotIn('cesfam_respaldo_bd_test.json', html_qf)
+            self.assertNotIn('Sección AP-N4-C9', html_qf)
+            self.assertNotIn('/admin-panel/escenarios/', html_qf)
+            self.assertNotIn('/simular-rol/admin/', html_qf)
+            self.assertNotIn('Acceso Denegado por Control de Rol (403)', html_qf)
+
+        # 2. Vista del Administrador en Bitácora: mantiene acceso completo a todo
+        self.client.login(username='admin_aud_flt', password='Password123!')
+        html_adm = self.client.get(reverse('core:auditoria_list')).content.decode('utf-8')
+        self.assertIn('cesfam_respaldo_bd_test.json', html_adm)
+        self.assertIn('Sección AP-N4-C9', html_adm)
+        self.assertIn('/admin-panel/escenarios/', html_adm)
+        self.assertIn('REC-QF-VIS-01', html_adm)
+
+    def test_escenario_demo_integral_seed_y_activacion_completa(self):
+        """
+        Verifica la creación idempotente del escenario 'Demo Integral — Evaluación Total CESFAM'
+        en seed_cesfam (sin eliminar Escenario Base ni Evaluación 1), sus 4 pacientes dedicados,
+        sus 4 recetas, su consigna docente visible y la activación completa de las 3 incidencias.
+        """
+        from io import StringIO
+        from django.core.management import call_command
+        from core.models import EscenarioSimulacion
+        from ges.models import InscripcionGES
+        from carros_clinicos.models import CarroClinico, ConsumoCarroClinico
+
+        # Ejecutar seed dos veces para confirmar idempotencia
+        call_command('seed_cesfam', preservar_usuarios=True, stdout=StringIO())
+        call_command('seed_cesfam', preservar_usuarios=True, stdout=StringIO())
+
+        # Los 3 escenarios coexisten intactos
+        esc_base = EscenarioSimulacion.objects.get(nombre='Escenario Base — Operación General CESFAM')
+        esc_eval = EscenarioSimulacion.objects.get(nombre='Evaluación 1 — Crónicos GES y Controlados ISP')
+        esc_demo = EscenarioSimulacion.objects.get(nombre='Demo Integral — Evaluación Total CESFAM')
+        self.assertIsNotNone(esc_eval)
+        self.assertEqual(esc_demo.modalidad, EscenarioSimulacion.Modalidad.INCIDENCIAS)
+        self.assertTrue(esc_demo.mostrar_consigna_a_estudiantes)
+        self.assertTrue(bool(esc_demo.consignas_personalizadas.strip()))
+        self.assertTrue(esc_demo.simular_quiebre)
+        self.assertTrue(esc_demo.simular_alerta_fefo)
+        self.assertTrue(esc_demo.simular_consumo_carro)
+        self.assertEqual(esc_demo.medicamento_quiebre.codigo, 'MED-RESP-001')
+
+        # 4 pacientes propios y aislados de Escenario Base
+        demo_ruts = {'17.482.910-1', '6.482.915-7', '15.928.374-7', '9.234.817-2'}
+        self.assertEqual(set(esc_demo.pacientes.values_list('rut', flat=True)), demo_ruts)
+        self.assertFalse(esc_base.pacientes.filter(rut__in=demo_ruts).exists())
+
+        p1 = Paciente.objects.get(rut='17.482.910-1')
+        p2 = Paciente.objects.get(rut='6.482.915-7')
+        p3 = Paciente.objects.get(rut='15.928.374-7')
+        p4 = Paciente.objects.get(rut='9.234.817-2')
+        self.assertEqual(p1.prevision, Paciente.Prevision.FONASA_B)
+        self.assertFalse(p1.cronico)
+        self.assertEqual(p2.prevision, Paciente.Prevision.FONASA_A)
+        self.assertTrue(p2.cronico)
+        self.assertTrue(p2.tiene_tercero_autorizado)
+        self.assertEqual(p2.tercero_autorizado_rut, '18.654.321-1')
+        self.assertTrue(InscripcionGES.objects.filter(paciente=p2, patologia__codigo='GES-01', activa=True).exists())
+        self.assertEqual(p3.prevision, Paciente.Prevision.FONASA_D)
+        self.assertEqual(p4.prevision, Paciente.Prevision.PRAIS)
+        self.assertTrue(InscripcionGES.objects.filter(paciente=p4, patologia__codigo='GES-38', activa=True).exists())
+
+        # 4 recetas cubriendo todos los casos y aisladas de Escenario Base
+        demo_recs = {'REC-DEMO-001', 'REC-DEMO-002', 'REC-DEMO-003', 'REC-DEMO-004'}
+        self.assertEqual(set(esc_demo.recetas.values_list('numero_receta', flat=True)), demo_recs)
+        self.assertFalse(esc_base.recetas.filter(numero_receta__in=demo_recs).exists())
+
+        r_a = Receta.objects.get(numero_receta='REC-DEMO-001')
+        r_b = Receta.objects.get(numero_receta='REC-DEMO-002')
+        r_c = Receta.objects.get(numero_receta='REC-DEMO-003')
+        r_d = Receta.objects.get(numero_receta='REC-DEMO-004')
+        self.assertEqual(r_a.tipo, Receta.TipoReceta.SIMPLE)
+        self.assertFalse(r_a.esta_vencida)
+        self.assertEqual(r_b.tipo, Receta.TipoReceta.CRONICA)
+        self.assertFalse(r_b.esta_vencida)
+        self.assertEqual(r_c.tipo, Receta.TipoReceta.RETENIDA)
+        self.assertTrue(r_c.es_controlada)
+        self.assertFalse(r_c.autorizada_qf)
+        self.assertTrue(r_d.esta_vencida)
+
+        # Activar escenario como Administrador -> dispara las 3 incidencias sin errores
+        admin_seed = Usuario.objects.get(username='admin')
+        self.client.force_login(admin_seed)
+        resp_act = self.client.post(reverse('core:escenario_activar', args=[esc_demo.pk]))
+        self.assertEqual(resp_act.status_code, 302)
+
+        # 1) Quiebre real de Salbutamol (< stock_minimo)
+        med_salb = Medicamento.objects.get(codigo='MED-RESP-001')
+        self.assertTrue(med_salb.en_quiebre)
+        self.assertLess(med_salb.stock_total, med_salb.stock_minimo)
+
+        # 2) Lote crítico FEFO (~12d) + Lote vencido en Vitrina (pendiente baja a cuarentena)
+        lote_crit = Lote.objects.get(numero_lote=f'SIM-FEFO-{esc_demo.pk}')
+        lote_venc = Lote.objects.get(numero_lote=f'SIM-VENC-{esc_demo.pk}')
+        self.assertEqual(lote_crit.ubicacion.tipo, 'vitrina')
+        self.assertEqual((lote_crit.fecha_vencimiento - date.today()).days, 12)
+        self.assertEqual(lote_venc.ubicacion.tipo, 'vitrina')
+        self.assertTrue(lote_venc.esta_vencido)
+        self.assertFalse(lote_venc.en_cuarentena)
+
+        # 3) Carro de Paro con 2 ampollas de Adrenalina consumidas por Personal Clínico -> Precinto Roto
+        carro_paro = CarroClinico.objects.filter(tipo=CarroClinico.TipoCarro.PARO, activo=True).first()
+        self.assertIsNotNone(carro_paro)
+        self.assertTrue(carro_paro.precinto_roto)
+        item_adr = carro_paro.plantilla_items.get(medicamento__nombre_generico__icontains='Adrenalina')
+        self.assertEqual(item_adr.faltante, 2)
+        ult_cons = ConsumoCarroClinico.objects.filter(carro=carro_paro, item=item_adr).order_by('-id').first()
+        self.assertIsNotNone(ult_cons)
+        self.assertEqual(ult_cons.cantidad_consumida, 2)
+        self.assertEqual(ult_cons.personal_clinico.rol, Usuario.Rol.PERSONAL_CLINICO)
+
+        # 4) Técnico ve la consigna en Dashboard, exactamente los 4 pacientes y las 4 recetas con sus estados
+        tec_seed = Usuario.objects.filter(rol=Usuario.Rol.TECNICO_FARMACIA, is_active=True).first()
+        self.client.force_login(tec_seed)
+        html_dash = self.client.get(reverse('core:dashboard')).content.decode('utf-8')
+        self.assertIn('Consigna del Taller Activo', html_dash)
+        self.assertIn('Evaluación Integral CESFAM', html_dash)
+
+        html_pac = self.client.get(reverse('core:paciente_list')).content.decode('utf-8')
+        for rut in demo_ruts:
+            self.assertIn(rut, html_pac)
+        self.assertNotIn('11.234.567-1', html_pac)
+
+        html_vent = self.client.get(reverse('dispensacion:dispensar')).content.decode('utf-8')
+        self.assertIn('REC-DEMO-001', html_vent)
+        self.assertIn('REC-DEMO-002', html_vent)
+        html_pend_qf = self.client.get(reverse('dispensacion:dispensar') + '?filtro=pendientes_qf').content.decode('utf-8')
+        self.assertIn('REC-DEMO-003', html_pend_qf)
+        self.assertIn('Esperando Q.F.', html_pend_qf)
+        html_venc = self.client.get(reverse('dispensacion:dispensar') + '?filtro=vencidas').content.decode('utf-8')
+        self.assertIn('REC-DEMO-004', html_venc)
+        self.assertIn('Vencida hace 10 días', html_venc)
+
+        # 5) Consigna accesible desde la píldora clickeable del navbar (#modalEscenarioActivo), sin franja azul en Dashboard
+        self.assertIn('data-bs-target="#modalEscenarioActivo"', html_dash)
+        self.assertIn('id="modalEscenarioActivo"', html_dash)
+        self.assertNotIn('id="collapseConsignaTaller"', html_dash)
+
+    def test_selector_roles_debug_presentacion_vs_produccion(self):
+        """
+        Verifica que con DEBUG=True cualquier rol ve la barra Rol: Admin|Q.F.|Técnico|Clínico
+        y puede usar /simular-rol/<rol>/ en 1 clic, mientras que con DEBUG=False y
+        MODO_SIMULACION_DOCENTE=False se restringe estrictamente al Administrador (403 al resto).
+        """
+        from django.test import override_settings
+
+        adm = Usuario.objects.create_user(
+            username='admin', password='Password123!', rut='11.111.111-1', rol=Usuario.Rol.ADMINISTRADOR
+        )
+        qf = Usuario.objects.create_user(
+            username='qf_suazo', password='Password123!', rut='12.222.222-2', rol=Usuario.Rol.QUIMICO_FARMACEUTICO
+        )
+        tec = Usuario.objects.create_user(
+            username='tecnico_alvarez', password='Password123!', rut='13.333.333-3', rol=Usuario.Rol.TECNICO_FARMACIA
+        )
+        cli = Usuario.objects.create_user(
+            username='enfermera_gonzalez', password='Password123!', rut='14.444.444-4', rol=Usuario.Rol.PERSONAL_CLINICO
+        )
+
+        # 1. DEBUG=True -> barra visible y /simular-rol/ habilitado para cualquiera de los 4 roles
+        with override_settings(DEBUG=True, MODO_SIMULACION_DOCENTE=False):
+            for usr in (adm, qf, tec, cli):
+                self.client.force_login(usr)
+                html = self.client.get(reverse('core:dashboard')).content.decode('utf-8')
+                self.assertIn('role-switcher-box', html)
+            # Técnico cambia a Q.F. y luego a Clínico en 1 clic sin cerrar sesión
+            self.client.force_login(tec)
+            resp_qf = self.client.get(reverse('core:simular_rol', args=['quimico']))
+            self.assertEqual(resp_qf.status_code, 302)
+            self.assertEqual(self.client.session.get('rol_simulado'), Usuario.Rol.QUIMICO_FARMACEUTICO)
+            resp_cli = self.client.get(reverse('core:simular_rol', args=['clinico']))
+            self.assertEqual(resp_cli.status_code, 302)
+            self.assertEqual(self.client.session.get('rol_simulado'), Usuario.Rol.PERSONAL_CLINICO)
+
+        # 2. DEBUG=False y MODO_SIMULACION_DOCENTE=False -> restricción estricta solo Administrador
+        with override_settings(DEBUG=False, MODO_SIMULACION_DOCENTE=False):
+            for usr in (qf, tec, cli):
+                self.client.force_login(usr)
+                html = self.client.get(reverse('core:dashboard')).content.decode('utf-8')
+                self.assertNotIn('role-switcher-box', html)
+                self.assertEqual(self.client.get(reverse('core:simular_rol', args=['admin'])).status_code, 403)
+
+            self.client.force_login(adm)
+            html_adm = self.client.get(reverse('core:dashboard')).content.decode('utf-8')
+            self.assertIn('role-switcher-box', html_adm)
+            self.assertEqual(self.client.get(reverse('core:simular_rol', args=['quimico'])).status_code, 302)
+
+    def test_impacto_stock_comprobante_ajuste_lote_directo_y_drilldown_dashboard(self):
+        """
+        Verifica:
+        1) Tras dispensar, el comprobante muestra el descuento exacto (antes -> después) y enlace directo al Kardex.
+        2) /farmacia/lotes/<id>/ajustar/ es exclusivo para Q.F. y Admin (403 a Técnico y Clínico),
+           soporta modo descontar (merma) y fijar (arqueo), registra Kardex y Auditoría.
+        3) Dashboard enlaza directamente a Lotes Vencidos y Semáforo FEFO (?alerta=vencido, 30, 60, 90).
+        """
+        from farmacia.models import MovimientoStock
+        from core.models import AuditoriaInmutable
+
+        qf = Usuario.objects.create_user(
+            username='qf_ajuste_t', password='Password123!', rut='16.555.444-K', rol=Usuario.Rol.QUIMICO_FARMACEUTICO
+        )
+        cli = Usuario.objects.create_user(
+            username='cli_ajuste_t', password='Password123!', rut='17.555.444-3', rol=Usuario.Rol.PERSONAL_CLINICO
+        )
+
+        # 1. Dispensar receta -> comprobante muestra impacto en stock y botón Ver Kardex / Stock
+        rec = Receta.objects.create(
+            numero_receta='REC-STK-001',
+            paciente=self.paciente,
+            medico=self.medico,
+            tipo=Receta.TipoReceta.SIMPLE,
+            estado=Receta.EstadoReceta.PENDIENTE,
+            diagnostico='Control HTA',
+            fecha_emision=date.today(),
+            fecha_vencimiento=date.today() + timedelta(days=20),
+        )
+        det = DetalleReceta.objects.create(
+            receta=rec,
+            medicamento=self.medicamento,
+            cantidad_prescrita=20,
+            posologia='1 al día',
+            dias_tratamiento=20,
+        )
+        self.client.login(username='tecnico_test', password='Password123!')
+        resp_disp = self.client.post(reverse('dispensacion:dispensar_receta', args=[rec.pk]), {
+            f'lote_{det.pk}': self.lote.pk,
+            f'cantidad_{det.pk}': '20',
+        }, follow=True)
+        self.assertEqual(resp_disp.status_code, 200)
+        html_comp = resp_disp.content.decode('utf-8')
+        self.assertIn('Impacto en Inventario y Kardex', html_comp)
+        self.assertIn('200 →', html_comp)
+        self.assertIn('180 unid.', html_comp)
+        self.assertIn('(-20)', html_comp)
+        self.assertIn(reverse('farmacia:medicamento_detalle', args=[self.medicamento.pk]), html_comp)
+
+        # 2. Ajuste / Merma directo en /farmacia/lotes/<id>/ajustar/: 403 para Técnico y Clínico
+        url_ajustar = reverse('farmacia:lote_ajustar', args=[self.lote.pk])
+        self.assertEqual(
+            self.client.post(url_ajustar, {'modo': 'descontar', 'cantidad': '10', 'motivo': 'Rotura'}).status_code,
+            403,
+        )
+        self.client.login(username='cli_ajuste_t', password='Password123!')
+        self.assertEqual(
+            self.client.post(url_ajustar, {'modo': 'descontar', 'cantidad': '10', 'motivo': 'Rotura'}).status_code,
+            403,
+        )
+
+        # Q.F. descuenta 30 por merma (180 -> 150) y luego fija arqueo en 5 (bajo stock mínimo 10)
+        self.client.login(username='qf_ajuste_t', password='Password123!')
+        html_lotes_qf = self.client.get(reverse('farmacia:lote_list')).content.decode('utf-8')
+        self.assertIn('Ajustar / Merma', html_lotes_qf)
+        self.assertIn('id="modalAjustarStockLote"', html_lotes_qf)
+
+        resp_merma = self.client.post(url_ajustar, {
+            'modo': 'descontar',
+            'cantidad': '30',
+            'motivo': 'Merma por rotura de envase',
+        })
+        self.assertEqual(resp_merma.status_code, 302)
+        self.lote.refresh_from_db()
+        self.assertEqual(self.lote.cantidad_actual, 150)
+        self.assertTrue(
+            MovimientoStock.objects.filter(
+                lote=self.lote,
+                tipo=MovimientoStock.TipoMovimiento.EGRESO_MERMA,
+                cantidad=-30,
+                cantidad_anterior=180,
+                cantidad_posterior=150,
+            ).exists()
+        )
+        self.assertTrue(
+            AuditoriaInmutable.objects.filter(accion='Ajuste / Merma de Stock en Lote').exists()
+        )
+
+        resp_arq = self.client.post(url_ajustar, {
+            'modo': 'fijar',
+            'cantidad': '5',
+            'motivo': 'Ajuste por arqueo físico',
+        }, follow=True)
+        self.lote.refresh_from_db()
+        self.assertEqual(self.lote.cantidad_actual, 5)
+        self.assertTrue(self.medicamento.en_quiebre)
+        self.assertIn('Alerta de quiebre', resp_arq.content.decode('utf-8'))
+
+        # 3. Dashboard con tarjetas clickeables de Lotes Vencidos y Semáforo FEFO
+        html_dash = self.client.get(reverse('core:dashboard')).content.decode('utf-8')
+        url_lotes = reverse('farmacia:lote_list')
+        for param in ('?alerta=vencido', '?alerta=30', '?alerta=60', '?alerta=90'):
+            self.assertIn(f'{url_lotes}{param}', html_dash)
+
 
 class PruebasRendimientoCESFAM(TestCase):
     """

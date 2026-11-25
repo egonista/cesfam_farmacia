@@ -222,11 +222,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
+    padding: 11px 14px;
     border-radius: 8px;
     text-decoration: none;
     color: var(--inacap-zinc-300);
-    margin-bottom: 6px;
+    margin-bottom: 2px;
     transition: all 0.15s ease;
     border: 1px solid transparent;
 }
@@ -523,6 +523,11 @@ body {
     font-size: 0.9rem;
 }
 
+.login-dark-input::placeholder {
+    color: #94A3B8 !important;
+    opacity: 1;
+}
+
 .login-dark-input:focus {
     border-color: var(--inacap-red) !important;
     box-shadow: 0 0 0 3px rgba(200, 16, 46, 0.35) !important;
@@ -578,12 +583,241 @@ body {
     white-space: nowrap !important;
 }
 
+/* ============================================================
+   ACCESIBILIDAD (A11Y): BOTÓN COMPACTO, TAMAÑO DE TEXTO Y ALTO CONTRASTE
+   ============================================================ */
+.a11y-trigger-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid #E2E8F0;
+    background-color: #F8FAFC;
+    color: #334155;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.a11y-trigger-btn:hover,
+.a11y-trigger-btn:focus-visible {
+    background-color: #FFFFFF;
+    border-color: var(--inacap-red);
+    color: var(--inacap-red);
+    outline: 2px solid rgba(200, 16, 46, 0.25);
+    outline-offset: 1px;
+}
+
+.a11y-trigger-btn.a11y-active {
+    background-color: rgba(200, 16, 46, 0.1);
+    border-color: var(--inacap-red);
+    color: var(--inacap-red);
+}
+
+.a11y-popover {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    width: 255px;
+    background-color: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    border-radius: 12px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    padding: 0.9rem 1rem;
+    z-index: 1080;
+}
+
+/* Escalado de texto accesible (sin alterar impresión) */
+html.font-sm {
+    font-size: 90%;
+}
+
+html.font-lg {
+    font-size: 112%;
+}
+
+/* Modo Alto Contraste (WCAG reforzado sin romper layout ni tablas) */
+html.high-contrast body {
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
+}
+
+html.high-contrast .text-muted,
+html.high-contrast .text-secondary,
+html.high-contrast .kpi-label,
+html.high-contrast .form-text {
+    color: #1E293B !important;
+}
+
+html.high-contrast .inacap-topbar {
+    border-bottom: 2px solid #000000 !important;
+}
+
+html.high-contrast .card,
+html.high-contrast .a11y-popover,
+html.high-contrast .modal-content {
+    background-color: #FFFFFF !important;
+    border: 2px solid #0F172A !important;
+    box-shadow: none !important;
+}
+
+html.high-contrast .card-header {
+    border-bottom: 2px solid #0F172A !important;
+    color: #000000 !important;
+}
+
+html.high-contrast .table-cesfam thead th,
+html.high-contrast .table thead.table-light th {
+    background-color: #E2E8F0 !important;
+    color: #000000 !important;
+    border-bottom: 2px solid #000000 !important;
+}
+
+html.high-contrast .table-cesfam tbody td {
+    color: #000000 !important;
+    border-bottom: 1px solid #64748B !important;
+}
+
+html.high-contrast .form-control,
+html.high-contrast .form-select,
+html.high-contrast .input-group-text {
+    border: 2px solid #0F172A !important;
+    color: #000000 !important;
+    background-color: #FFFFFF !important;
+}
+
+html.high-contrast .btn-outline-secondary,
+html.high-contrast .btn-outline-dark,
+html.high-contrast .btn-outline-primary {
+    border-width: 2px !important;
+    color: #000000 !important;
+    border-color: #000000 !important;
+}
+
+html.high-contrast .btn-cesfam {
+    background-color: #99001A !important;
+    color: #FFFFFF !important;
+    border: 2px solid #000000 !important;
+}
+
+/* Sidebar en Modo Alto Contraste (WCAG AAA sobre negro) */
+html.high-contrast .inacap-sidebar {
+    background-color: #000000 !important;
+    border-right: 2px solid #000000 !important;
+}
+
+html.high-contrast .sidebar-module-card {
+    background-color: #000000 !important;
+    border: 1.5px solid #FFFFFF !important;
+}
+
+html.high-contrast .sidebar-module-card div {
+    color: #FFFFFF !important;
+}
+
+html.high-contrast .sidebar-nav-link {
+    color: #FFFFFF !important;
+    border: 1.5px solid transparent !important;
+}
+
+html.high-contrast .sidebar-nav-link .nav-title {
+    color: #FFFFFF !important;
+}
+
+html.high-contrast .sidebar-nav-link .nav-desc {
+    color: #E5E7EB !important;
+}
+
+html.high-contrast .sidebar-nav-link:hover {
+    background-color: #18181B !important;
+    border-color: #FFFFFF !important;
+    color: #FFFFFF !important;
+}
+
+html.high-contrast .sidebar-nav-link.active {
+    background-color: #99001A !important;
+    color: #FFFFFF !important;
+    border: 2px solid #FACC15 !important;
+    box-shadow: none !important;
+}
+
+html.high-contrast .sidebar-nav-link.active .nav-desc {
+    color: #FFFFFF !important;
+}
+
+html.high-contrast .sidebar-nav-link:focus-visible {
+    outline: 3px solid #FACC15 !important;
+    outline-offset: 2px !important;
+    border-color: #FFFFFF !important;
+}
+
+html.high-contrast .sidebar-badge {
+    border-width: 1.5px !important;
+    border-style: solid !important;
+    background-color: #000000 !important;
+}
+
+html.high-contrast .sidebar-badge-green {
+    color: #4ADE80 !important;
+    border-color: #4ADE80 !important;
+}
+
+html.high-contrast .sidebar-badge-red {
+    color: #FCA5A5 !important;
+    border-color: #F87171 !important;
+}
+
+html.high-contrast .sidebar-badge-amber {
+    color: #FDE047 !important;
+    border-color: #FACC15 !important;
+}
+
+html.high-contrast .sidebar-nav-link.active .sidebar-badge {
+    background-color: #000000 !important;
+    color: #FFFFFF !important;
+    border: 1.5px solid #FACC15 !important;
+}
+
+html.high-contrast .sidebar-footer {
+    background-color: #000000 !important;
+    border-top: 1.5px solid #FFFFFF !important;
+    color: #E5E7EB !important;
+}
+
+html.high-contrast .sidebar-footer p {
+    color: #E5E7EB !important;
+}
+
+html.high-contrast a:focus-visible,
+html.high-contrast button:focus-visible,
+html.high-contrast input:focus-visible,
+html.high-contrast select:focus-visible {
+    outline: 3px solid #000000 !important;
+    outline-offset: 2px !important;
+}
+
 @page {
     size: letter portrait;
     margin: 12mm;
 }
 
 @media print {
+    html,
+    html.font-sm,
+    html.font-lg,
+    html.high-contrast {
+        font-size: 100% !important;
+    }
+    html.high-contrast body,
+    html.high-contrast .card,
+    html.high-contrast .table-cesfam thead th,
+    html.high-contrast .table-cesfam tbody td {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+        border-color: #D4D4D8 !important;
+    }
     body {
         background-color: #FFFFFF !important;
         color: #000000 !important;

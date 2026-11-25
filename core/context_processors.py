@@ -7,7 +7,8 @@ from django.conf import settings
 
 def global_context(request):
     """Inyecta variables globales en todos los templates."""
-    modo_sim = getattr(settings, 'MODO_SIMULACION_DOCENTE', True)
+    modo_sim = getattr(settings, 'MODO_SIMULACION_DOCENTE', False)
+    modo_presentacion = bool(getattr(settings, 'DEBUG', False) or modo_sim)
     context = {
         'proyecto_nombre': 'Sistema de Gestión Farmacia CESFAM',
         'proyecto_version': '1.0.0',
@@ -30,14 +31,14 @@ def global_context(request):
         try:
             context['usuario_rol'] = request.user.get_rol_display()
             context['usuario_nombre_completo'] = request.user.get_full_name()
-            if modo_sim:
+            if modo_presentacion:
                 context['mostrar_cambio_rapido'] = True
             else:
                 context['mostrar_cambio_rapido'] = bool(
                     request.user.rol == 'admin' or request.session.get('is_real_admin') is True
                 )
         except Exception:
-            context['mostrar_cambio_rapido'] = modo_sim
+            context['mostrar_cambio_rapido'] = modo_presentacion
     else:
         context['escenario_activo'] = None
         context['escenario_version'] = 'none'

@@ -1,0 +1,15 @@
+{% extends 'errors/base_error.html' %}
+{% block error_title %}404 · Página No Encontrada{% endblock %}
+{% block error_icon %}bi-compass-fill{% endblock %}
+{% block error_code %}404{% endblock %}
+{% block error_heading %}Página no encontrada{% endblock %}
+{% block error_description %}
+La dirección que intentaste abrir no existe, fue movida o el registro consultado ya no se encuentra disponible en el sistema.
+{% endblock %}
+{% block error_extra %}
+{% if ruta_intentada %}
+<div class="error-detail-box text-center">
+    <strong>Ruta solicitada:</strong> <code>{{ ruta_intentada }}</code>
+</div>
+{% endif %}
+{% endblock %}

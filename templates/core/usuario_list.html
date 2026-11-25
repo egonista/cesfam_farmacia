@@ -226,7 +226,11 @@
                                     <i class="bi bi-box-arrow-in-right"></i>
                                 </a>
                                 {% if user.rol == 'admin' and u.pk != user.pk %}
-                                <form method="post" class="m-0">
+                                <form method="post" class="m-0"
+                                      data-confirm="{% if u.is_active %}¿Desactivar la cuenta de {{ u.get_full_name|default:u.username }}? No podrá iniciar sesión hasta reactivarla.{% else %}¿Reactivar la cuenta de {{ u.get_full_name|default:u.username }} para permitir su acceso al sistema?{% endif %}"
+                                      data-confirm-title="{% if u.is_active %}Desactivar cuenta de usuario{% else %}Activar cuenta de usuario{% endif %}"
+                                      data-confirm-btn="{% if u.is_active %}Sí, desactivar{% else %}Sí, activar{% endif %}"
+                                      data-confirm-variant="{% if u.is_active %}danger{% else %}success{% endif %}">
                                     {% csrf_token %}
                                     <input type="hidden" name="accion_post" value="toggle_estado">
                                     <input type="hidden" name="usuario_id" value="{{ u.pk }}">
@@ -874,14 +878,42 @@ function cancelarEliminarSeccion() {
 function enviarAccionMasiva(tipo) {
     const seleccionados = document.querySelectorAll('.check-usuario-row:checked').length;
     if (seleccionados === 0) return;
-    const etiquetas = {
-        cambiar_rol: `¿Confirmar cambio de rol para ${seleccionados} cuenta(s) seleccionada(s)?`,
-        activar: `¿Activar ${seleccionados} cuenta(s) seleccionada(s)?`,
-        desactivar: `¿Desactivar ${seleccionados} cuenta(s) seleccionada(s)? No podrán iniciar sesión hasta reactivarlas.`
+    const config = {
+        cambiar_rol: {
+            titulo: 'Confirmar cambio de rol',
+            mensaje: `¿Aplicar el nuevo rol seleccionado a ${seleccionados} cuenta(s)?`,
+            textoConfirmar: 'Cambiar rol',
+            variante: 'primary'
+        },
+        activar: {
+            titulo: 'Activar cuentas seleccionadas',
+            mensaje: `¿Activar ${seleccionados} cuenta(s) seleccionada(s) para permitir el inicio de sesión?`,
+            textoConfirmar: 'Sí, activar',
+            variante: 'success'
+        },
+        desactivar: {
+            titulo: 'Desactivar cuentas seleccionadas',
+            mensaje: `¿Desactivar ${seleccionados} cuenta(s) seleccionada(s)? No podrán iniciar sesión hasta reactivarlas.`,
+            textoConfirmar: 'Sí, desactivar',
+            variante: 'danger'
+        }
+    }[tipo] || {
+        titulo: 'Confirmar acción masiva',
+        mensaje: '¿Aplicar esta acción masiva a las cuentas seleccionadas?',
+        textoConfirmar: 'Confirmar',
+        variante: 'primary'
     };
-    if (!confirm(etiquetas[tipo] || '¿Aplicar acción masiva?')) return;
-    document.getElementById('inputTipoMasivo').value = tipo;
-    document.getElementById('formAccionMasiva').submit();
+
+    window.abrirConfirmacion({
+        titulo: config.titulo,
+        mensaje: config.mensaje,
+        textoConfirmar: config.textoConfirmar,
+        variante: config.variante,
+        onConfirm: function() {
+            document.getElementById('inputTipoMasivo').value = tipo;
+            document.getElementById('formAccionMasiva').submit();
+        }
+    });
 }
 </script>
 {% endif %}

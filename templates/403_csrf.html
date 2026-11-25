@@ -1,0 +1,14 @@
+{% extends 'errors/base_error.html' %}
+{% block error_title %}403 · Sesión de Formulario Expirada{% endblock %}
+{% block error_icon %}bi-clock-history{% endblock %}
+{% block error_code %}403{% endblock %}
+{% block error_heading %}Sesión de formulario expirada{% endblock %}
+{% block error_description %}
+Tu sesión de formulario expiró, vuelve atrás y recarga la página para enviar los datos de forma segura.
+{% endblock %}
+{% block error_extra %}
+<div class="error-detail-box">
+    <i class="bi bi-shield-lock me-1 text-danger"></i>
+    Por seguridad, los formularios cuentan con verificación temporal (CSRF). Al recargar la página se renovará automáticamente tu token de envío.
+</div>
+{% endblock %}

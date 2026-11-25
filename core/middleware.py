@@ -65,3 +65,34 @@ class AuditMiddleware:
         if x_forwarded_for:
             return x_forwarded_for.split(',')[0].strip()
         return request.META.get('REMOTE_ADDR', '127.0.0.1')
+
+
+class CustomErrorPagesMiddleware:
+    """
+    En modo local (DEBUG = True), intercepta respuestas HTML 404 técnicas de Django
+    (excluyendo /api/, /static/ y /media/) para mostrar la plantilla institucional 404.html
+    sin necesidad de desactivar DEBUG durante demostraciones en vivo.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if response.status_code == 404:
+            from django.conf import settings
+            path = request.path or ''
+            accept = request.headers.get('Accept', '')
+            es_recurso_excluido = (
+                path.startswith('/api/')
+                or path.startswith('/static/')
+                or path.startswith('/media/')
+                or accept.startswith('application/json')
+            )
+            if getattr(settings, 'DEBUG', False) and not es_recurso_excluido:
+                content_type = response.get('Content-Type', '')
+                # Solo reemplazar si es la página técnica amarilla de Django (no nuestra 404 ya renderizada)
+                if 'text/html' in content_type and b'Farmacia Asistencial CESFAM' not in getattr(response, 'content', b''):
+                    from core.error_views import error_404
+                    return error_404(request)
+        return response

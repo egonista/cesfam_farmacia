@@ -1,51 +1,24 @@
-{% extends 'base.html' %}
-{% block title %}Acceso Denegado (403){% endblock %}
-{% block content %}
-<div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-lg-7">
-            <div class="card border-danger shadow-sm">
-                <div class="card-header bg-danger text-white d-flex align-items-center justify-content-between py-3">
-                    <h5 class="mb-0 fw-bolder">
-                        <i class="bi bi-shield-lock-fill me-2"></i>Acceso Restringido por Perfil Sanitario (403)
-                    </h5>
-                    <span class="badge bg-dark">HTTP 403 Forbidden</span>
-                </div>
-                <div class="card-body p-4">
-                    <div class="d-flex align-items-start gap-3 mb-3">
-                        <div class="text-danger fs-1 lh-1">
-                            <i class="bi bi-exclamation-octagon-fill"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-bold text-dark mb-1">Operación o sección no autorizada para su rol actual</h5>
-                            <p class="text-muted mb-2">
-                                {{ motivo|default:"Su perfil actual no cuenta con los permisos necesarios para ingresar a esta ruta o ejecutar esta acción clínica/administrativa." }}
-                            </p>
-                            <div class="small bg-light border rounded p-2 text-secondary">
-                                <div><strong>Usuario activo:</strong> {{ user.get_full_name|default:user.username }} (<code>{{ user.rut }}</code>)</div>
-                                <div><strong>Rol actual en sesión:</strong> <span class="badge bg-dark">{{ user.get_rol_display }}</span></div>
-                                {% if ruta_intentada %}
-                                <div><strong>Ruta solicitada:</strong> <code>{{ ruta_intentada }}</code></div>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                        <span class="small text-muted">
-                            <i class="bi bi-info-circle me-1"></i>Este evento ha quedado registrado en la bitácora de seguridad.
-                        </span>
-                        <div class="d-flex gap-2">
-                            <a href="{% url 'core:dashboard' %}" class="btn btn-cesfam">
-                                <i class="bi bi-house-door-fill me-1"></i>Volver al Panel Principal
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+{% extends 'errors/base_error.html' %}
+{% block error_title %}403 · Acceso Denegado{% endblock %}
+{% block error_icon %}bi-shield-lock-fill{% endblock %}
+{% block error_code %}403{% endblock %}
+{% block error_heading %}Acceso restringido por perfil sanitario{% endblock %}
+{% block error_description %}
+{{ motivo|default:"Tu perfil actual no cuenta con los permisos necesarios para ingresar a esta sección o ejecutar esta operación clínica/administrativa." }}
+{% endblock %}
+{% block error_extra %}
+{% if user.is_authenticated %}
+<div class="error-detail-box">
+    <div class="mb-1">
+        <strong>Usuario en sesión:</strong> {{ user.get_full_name|default:user.username }}
+        <span class="badge bg-dark ms-1">{{ user.get_rol_display }}</span>
+    </div>
+    {% if ruta_intentada %}
+    <div class="mb-1"><strong>Sección solicitada:</strong> <code>{{ ruta_intentada }}</code></div>
+    {% endif %}
+    <div class="text-muted mt-2" style="font-size: 0.76rem;">
+        <i class="bi bi-shield-check me-1"></i>Este evento ha quedado registrado en la bitácora de auditoría institucional.
     </div>
 </div>
+{% endif %}
 {% endblock %}

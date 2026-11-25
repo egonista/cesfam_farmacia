@@ -115,7 +115,9 @@
                     <tr class="{% if l.en_cuarentena %}table-secondary text-muted{% elif l.esta_vencido %}table-danger{% elif l.dias_para_vencer <= 30 %}table-warning{% endif %}">
                         <td class="whitespace-nowrap text-nowrap"><strong><code>{{ l.numero_lote }}</code></strong></td>
                         <td>
-                            <strong>{{ l.medicamento.nombre_generico }}</strong> {{ l.medicamento.concentracion }}
+                            <a href="{% url 'farmacia:medicamento_detalle' l.medicamento.pk %}" class="text-decoration-none text-dark" title="Ver ficha y Kardex del medicamento">
+                                <strong>{{ l.medicamento.nombre_generico }}</strong> {{ l.medicamento.concentracion }}
+                            </a>
                             {% if l.en_cuarentena and l.motivo_cuarentena %}
                             <br><small class="text-muted">Motivo baja: {{ l.motivo_cuarentena }}</small>
                             {% endif %}
@@ -178,6 +180,20 @@
                                 {% endif %}
                             {% else %}
                             <div class="d-inline-flex flex-wrap justify-content-end gap-1">
+                                {% if user.rol == 'admin' or user.rol == 'quimico' %}
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger fw-semibold btn-abrir-ajuste-lote"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#modalAjustarStockLote"
+                                        data-action-url="{% url 'farmacia:lote_ajustar' l.pk %}"
+                                        data-lote="{{ l.numero_lote }}"
+                                        data-medicamento="{{ l.medicamento.nombre_generico }} {{ l.medicamento.concentracion }}"
+                                        data-ubicacion="{{ l.ubicacion.nombre }}"
+                                        data-stock="{{ l.cantidad_actual }}"
+                                        data-minimo="{{ l.medicamento.stock_minimo }}">
+                                    <i class="bi bi-sliders me-1"></i>Ajustar / Merma
+                                </button>
+                                {% endif %}
                                 {% if l.ubicacion.tipo == 'bodega' and l.cantidad_actual > 0 %}
                                     {% if user.rol == 'admin' or user.rol == 'tecnico' or user.rol == 'quimico' %}
                                     <a href="{% url 'farmacia:traspaso' %}?lote={{ l.pk }}" class="btn btn-sm btn-cesfam">
@@ -186,7 +202,7 @@
                                     {% endif %}
                                 {% endif %}
                                 <a href="{% url 'farmacia:medicamento_detalle' l.medicamento.pk %}" class="btn btn-sm btn-outline-dark">
-                                    <i class="bi bi-eye me-1"></i>Ver Ficha / Kardex
+                                    <i class="bi bi-journal-text me-1"></i>Kardex
                                 </a>
                             </div>
                             {% endif %}
@@ -202,4 +218,158 @@
         </div>
     </div>
 </div>
+
+{% if user.rol == 'admin' or user.rol == 'quimico' %}
+<!-- Modal Reutilizable: Ajuste de Inventario / Merma de Stock en Lote -->
+<div class="modal fade" id="modalAjustarStockLote" tabindex="-1" aria-labelledby="modalAjustarLoteLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title fw-bold" id="modalAjustarLoteLabel">
+                    <i class="bi bi-sliders me-2 text-danger"></i>Ajuste de Inventario / Merma de Stock
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <form method="post" id="formAjustarStockLote" action="">
+                {% csrf_token %}
+                <input type="hidden" name="next" id="ajusteNextUrl" value="{{ request.get_full_path }}">
+                <div class="modal-body">
+                    <div class="p-2 px-3 rounded bg-light border mb-3 small">
+                        <div class="fw-bold text-dark" id="ajusteMedNombre">—</div>
+                        <div class="text-muted">
+                            Lote: <code class="fw-bold text-dark" id="ajusteLoteCod">—</code> ·
+                            Ubicación: <span id="ajusteUbicacion">—</span>
+                        </div>
+                        <div class="mt-1">
+                            Stock actual en lote: <span class="badge bg-dark" id="ajusteStockActualBadge">0 unid.</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small d-block">Tipo de operación</label>
+                        <div class="btn-group w-100" role="group" aria-label="Modo de ajuste de stock">
+                            <input type="radio" class="btn-check" name="modo" id="modoDescontar" value="descontar" checked>
+                            <label class="btn btn-outline-danger btn-sm fw-semibold" for="modoDescontar">
+                                <i class="bi bi-dash-circle me-1"></i>Descontar (Merma / Salida)
+                            </label>
+                            <input type="radio" class="btn-check" name="modo" id="modoFijar" value="fijar">
+                            <label class="btn btn-outline-dark btn-sm fw-semibold" for="modoFijar">
+                                <i class="bi bi-clipboard2-check me-1"></i>Fijar Stock Exacto (Arqueo)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="ajusteCantidadInput" class="form-label fw-bold small" id="ajusteCantidadLabel">
+                            Unidades a descontar
+                        </label>
+                        <input type="number" name="cantidad" id="ajusteCantidadInput" class="form-control" min="1" required>
+                        <div class="form-text small" id="ajustePreviewTexto">Stock resultante: —</div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="ajusteMotivoPreset" class="form-label fw-bold small">Motivo rápido</label>
+                        <select id="ajusteMotivoPreset" class="form-select form-select-sm mb-2">
+                            <option value="Merma por rotura o deterioro de envase">Merma por rotura o deterioro de envase</option>
+                            <option value="Ajuste por arqueo físico de inventario">Ajuste por arqueo físico de inventario</option>
+                            <option value="Descarte por pérdida de cadena de frío / conservación">Descarte por pérdida de cadena de frío / conservación</option>
+                            <option value="Entrega extraordinaria a box clínico / urgencia">Entrega extraordinaria a box clínico / urgencia</option>
+                            <option value="">Otro motivo (escribir abajo)</option>
+                        </select>
+                        <input type="text" name="motivo" id="ajusteMotivoInput" class="form-control form-control-sm"
+                               value="Merma por rotura o deterioro de envase"
+                               placeholder="Detalle del motivo técnico (quedará en Kardex y Auditoría)..." required>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger btn-sm fw-bold">
+                        <i class="bi bi-check2-circle me-1"></i>Registrar en Kardex y Auditoría
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    var modalEl = document.getElementById('modalAjustarStockLote');
+    if (!modalEl) return;
+    var form = document.getElementById('formAjustarStockLote');
+    var medEl = document.getElementById('ajusteMedNombre');
+    var loteEl = document.getElementById('ajusteLoteCod');
+    var ubicEl = document.getElementById('ajusteUbicacion');
+    var stockBadge = document.getElementById('ajusteStockActualBadge');
+    var modoDesc = document.getElementById('modoDescontar');
+    var modoFijar = document.getElementById('modoFijar');
+    var cantLabel = document.getElementById('ajusteCantidadLabel');
+    var cantInput = document.getElementById('ajusteCantidadInput');
+    var previewEl = document.getElementById('ajustePreviewTexto');
+    var presetSel = document.getElementById('ajusteMotivoPreset');
+    var motivoInput = document.getElementById('ajusteMotivoInput');
+    var nextInput = document.getElementById('ajusteNextUrl');
+    var stockActual = 0;
+
+    function actualizarPreview() {
+        var val = parseInt(cantInput.value, 10);
+        if (modoDesc.checked) {
+            cantLabel.textContent = 'Unidades a descontar (máx. ' + stockActual + ')';
+            cantInput.min = '1';
+            cantInput.max = String(stockActual);
+            if (isNaN(val)) {
+                previewEl.textContent = 'Stock resultante: ' + stockActual + ' unid.';
+            } else {
+                var res = Math.max(0, stockActual - val);
+                previewEl.innerHTML = 'Stock resultante: <strong>' + stockActual + ' → ' + res + ' unid.</strong>';
+            }
+        } else {
+            cantLabel.textContent = 'Nueva cantidad contada en arqueo físico';
+            cantInput.min = '0';
+            cantInput.removeAttribute('max');
+            if (isNaN(val)) {
+                previewEl.textContent = 'Stock actual: ' + stockActual + ' unid.';
+            } else {
+                var diff = val - stockActual;
+                var signo = diff > 0 ? '+' : '';
+                previewEl.innerHTML = 'Stock resultante: <strong>' + stockActual + ' → ' + val + ' unid.</strong> (' + signo + diff + ')';
+            }
+        }
+    }
+
+    document.addEventListener('click', function(ev) {
+        var btn = ev.target && ev.target.closest ? ev.target.closest('.btn-abrir-ajuste-lote') : null;
+        if (!btn) return;
+        stockActual = parseInt(btn.getAttribute('data-stock') || '0', 10);
+        form.setAttribute('action', btn.getAttribute('data-action-url') || '');
+        if (nextInput) nextInput.value = window.location.pathname + window.location.search;
+        medEl.textContent = btn.getAttribute('data-medicamento') || '';
+        loteEl.textContent = btn.getAttribute('data-lote') || '';
+        ubicEl.textContent = btn.getAttribute('data-ubicacion') || '';
+        stockBadge.textContent = stockActual + ' unid.';
+        modoDesc.checked = stockActual > 0;
+        modoFijar.checked = stockActual === 0;
+        cantInput.value = stockActual > 0 ? String(Math.min(5, stockActual)) : '0';
+        actualizarPreview();
+    });
+
+    modoDesc.addEventListener('change', function() {
+        cantInput.value = stockActual > 0 ? String(Math.min(5, stockActual)) : '0';
+        actualizarPreview();
+    });
+    modoFijar.addEventListener('change', function() {
+        cantInput.value = String(stockActual);
+        actualizarPreview();
+    });
+    cantInput.addEventListener('input', actualizarPreview);
+    presetSel.addEventListener('change', function() {
+        if (presetSel.value) {
+            motivoInput.value = presetSel.value;
+        } else {
+            motivoInput.value = '';
+            motivoInput.focus();
+        }
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

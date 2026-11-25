@@ -13,6 +13,7 @@ urlpatterns = [
     path('lotes/', views.lote_list, name='lote_list'),
     path('lotes/crear/', views.lote_crear, name='lote_crear'),
     path('lotes/<int:pk>/cuarentena/', views.lote_cuarentena, name='lote_cuarentena'),
+    path('lotes/<int:pk>/ajustar/', views.lote_ajustar, name='lote_ajustar'),
     path('movimientos/', views.movimiento_list, name='movimiento_list'),
     path('movimientos/traspaso/', views.traspaso, name='traspaso'),
     path('alertas/vencimiento/', views.alertas_vencimiento, name='alertas_vencimiento'),

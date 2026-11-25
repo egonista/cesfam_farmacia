@@ -529,6 +529,136 @@ def lote_cuarentena(request, pk):
 
 
 @rol_requerido(
+    'admin', 'quimico',
+    motivo='Solo el Químico Farmacéutico (Director Técnico) o el Administrador pueden registrar ajustes de inventario o mermas en lotes.'
+)
+@transaction.atomic
+def lote_ajustar(request, pk):
+    """
+    Ajuste de inventario o registro de merma/rotura directamente sobre un lote vigente,
+    con trazabilidad automática en Kardex (MovimientoStock), Libro de Controlados y Auditoría Inmutable.
+    """
+    next_url = (request.POST.get('next') or '').strip()
+    destino = next_url if next_url.startswith('/farmacia/') else 'farmacia:lote_list'
+    if request.method != 'POST':
+        return redirect(destino)
+
+    lote = get_object_or_404(
+        Lote.objects.select_for_update().select_related('medicamento', 'ubicacion'),
+        pk=pk,
+    )
+    if lote.en_cuarentena:
+        messages.error(request, f'El lote {lote.numero_lote} ya se encuentra en Cuarentena y no admite ajustes de stock.')
+        return redirect(destino)
+    if lote.esta_vencido:
+        messages.error(request, f'El lote {lote.numero_lote} está vencido. Utilice la acción "Retirar / Dar de Baja (Cuarentena)".')
+        return redirect(destino)
+
+    modo = (request.POST.get('modo') or 'descontar').strip().lower()
+    motivo = (request.POST.get('motivo') or '').strip()
+    if not motivo:
+        messages.error(request, 'Debe indicar un motivo técnico para el ajuste o merma de stock.')
+        return redirect(destino)
+
+    try:
+        valor = int(request.POST.get('cantidad', '').strip())
+    except (TypeError, ValueError):
+        messages.error(request, 'Ingrese una cantidad numérica válida.')
+        return redirect(destino)
+
+    cant_ant = lote.cantidad_actual
+    if modo == 'descontar':
+        if valor <= 0:
+            messages.error(request, 'La cantidad a descontar debe ser mayor a cero.')
+            return redirect(destino)
+        if valor > cant_ant:
+            messages.error(
+                request,
+                f'No puede descontar {valor} unidades del lote {lote.numero_lote} (stock disponible: {cant_ant}).'
+            )
+            return redirect(destino)
+        cant_nueva = cant_ant - valor
+        tipo_mov = MovimientoStock.TipoMovimiento.EGRESO_MERMA
+    elif modo == 'fijar':
+        if valor < 0:
+            messages.error(request, 'El stock resultante del arqueo no puede ser negativo.')
+            return redirect(destino)
+        cant_nueva = valor
+        tipo_mov = MovimientoStock.TipoMovimiento.AJUSTE
+    else:
+        messages.error(request, 'Modo de ajuste no válido.')
+        return redirect(destino)
+
+    variacion = cant_nueva - cant_ant
+    if variacion == 0:
+        messages.info(request, f'El lote {lote.numero_lote} mantuvo su stock actual de {cant_ant} unidades.')
+        return redirect(destino)
+
+    lote.cantidad_actual = cant_nueva
+    lote.save(update_fields=['cantidad_actual'])
+
+    MovimientoStock.objects.create(
+        lote=lote,
+        tipo=tipo_mov,
+        cantidad=variacion,
+        cantidad_anterior=cant_ant,
+        cantidad_posterior=cant_nueva,
+        motivo=motivo,
+        usuario=request.user,
+        ubicacion_origen=lote.ubicacion if variacion < 0 else None,
+        ubicacion_destino=lote.ubicacion if variacion > 0 else None,
+    )
+
+    # Mantener cuadratura automática en Libro Oficial si el fármaco es controlado (D.S. 404/405)
+    if lote.medicamento.es_controlado:
+        from controlados.models import LibroControlados
+        from core.models import Usuario
+        qf_resp = (
+            request.user
+            if request.user.rol == 'quimico'
+            else (Usuario.objects.filter(rol='quimico', is_active=True).first() or request.user)
+        )
+        LibroControlados.objects.create(
+            folio=LibroControlados.siguiente_folio(),
+            medicamento=lote.medicamento,
+            lote=lote,
+            tipo_movimiento=(
+                LibroControlados.TipoMovimiento.MERMA
+                if variacion < 0
+                else LibroControlados.TipoMovimiento.INGRESO
+            ),
+            cantidad=abs(variacion),
+            saldo_anterior=cant_ant,
+            saldo_posterior=cant_nueva,
+            quimico_responsable=qf_resp,
+            verificacion_2fa=True,
+            observaciones=f'Ajuste / Merma de inventario: {motivo}',
+        )
+
+    registrar_auditoria(
+        request.user,
+        'Ajuste / Merma de Stock en Lote',
+        f'Lote {lote.numero_lote} ({lote.medicamento.nombre_generico})',
+        valores_anteriores={'cantidad': cant_ant, 'ubicacion': lote.ubicacion.nombre},
+        valores_nuevos={'cantidad': cant_nueva, 'variacion': variacion, 'modo': modo, 'motivo': motivo},
+    )
+
+    signo = '+' if variacion > 0 else ''
+    messages.success(
+        request,
+        f'Stock actualizado en lote {lote.numero_lote} ({lote.medicamento.nombre_generico}): '
+        f'{cant_ant} → {cant_nueva} unid. ({signo}{variacion}).'
+    )
+    if lote.medicamento.en_quiebre:
+        messages.warning(
+            request,
+            f'Alerta de quiebre: {lote.medicamento.nombre_generico} quedó con {lote.medicamento.stock_total} unid. '
+            f'(mínimo ministerial: {lote.medicamento.stock_minimo}). Puedes gestionar reposición en Pedidos CENABAST.'
+        )
+    return redirect(destino)
+
+
+@rol_requerido(
     'admin', 'quimico', 'tecnico',
     motivo='El Personal Clínico no está autorizado para recepcionar ni ingresar lotes al inventario de farmacia.'
 )

@@ -154,7 +154,11 @@
                 <i class="bi bi-pencil me-1"></i>Editar Proveedor / Observaciones
             </button>
         </div>
-        <form method="post" class="m-0" onsubmit="return confirm('¿Eliminar permanentemente este borrador de orden?');">
+        <form method="post" class="m-0"
+              data-confirm="¿Eliminar permanentemente este borrador de orden?"
+              data-confirm-title="Eliminar borrador de orden"
+              data-confirm-btn="Sí, eliminar"
+              data-confirm-variant="danger">
             {% csrf_token %}
             <input type="hidden" name="accion" value="eliminar_orden">
             <button type="submit" class="btn btn-sm btn-outline-danger">
@@ -315,7 +319,11 @@
                     </td>
                     {% if orden.estado == 'pendiente' %}
                     <td class="no-print text-center">
-                        <form method="post" class="m-0" onsubmit="return confirm('¿Quitar {{ d.medicamento.nombre_generico }} de esta orden?');">
+                        <form method="post" class="m-0"
+                              data-confirm="¿Quitar {{ d.medicamento.nombre_generico }} de esta orden?"
+                              data-confirm-title="Quitar medicamento de la orden"
+                              data-confirm-btn="Sí, quitar"
+                              data-confirm-variant="danger">
                             {% csrf_token %}
                             <input type="hidden" name="accion" value="eliminar_item">
                             <input type="hidden" name="detalle_id" value="{{ d.id }}">

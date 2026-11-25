@@ -1489,6 +1489,21 @@ class Command(BaseCommand):
         self.stdout.write("12. Creando escenarios de simulación docente...")
         admin_seed = usuarios_creados.get('admin') or Usuario.objects.filter(rol=Usuario.Rol.ADMINISTRADOR).first()
         hay_activo = EscenarioSimulacion.objects.filter(activo=True).exists()
+
+        # Pacientes y recetas exclusivas del escenario "Demo Integral — Evaluación Total CESFAM" (idempotente)
+        demo_ruts = [
+            '17.482.910-1',
+            '6.482.915-7',
+            '15.928.374-7',
+            '9.234.817-2',
+        ]
+        demo_recetas_nums = [
+            'REC-DEMO-001',
+            'REC-DEMO-002',
+            'REC-DEMO-003',
+            'REC-DEMO-004',
+        ]
+
         esc_base, _ = EscenarioSimulacion.objects.get_or_create(
             nombre='Escenario Base — Operación General CESFAM',
             defaults={
@@ -1497,8 +1512,8 @@ class Command(BaseCommand):
                 'creado_por': admin_seed,
             },
         )
-        esc_base.pacientes.set(Paciente.objects.all())
-        esc_base.recetas.set(Receta.objects.all())
+        esc_base.pacientes.set(Paciente.objects.exclude(rut__in=demo_ruts))
+        esc_base.recetas.set(Receta.objects.exclude(numero_receta__in=demo_recetas_nums))
 
         esc_eval, _ = EscenarioSimulacion.objects.get_or_create(
             nombre='Evaluación 1 — Crónicos GES y Controlados ISP',
@@ -1512,7 +1527,7 @@ class Command(BaseCommand):
             Paciente.objects.filter(rut__in=['8.765.432-K', '7.654.321-6', '9.876.543-3'])
         )
         if not pacientes_eval:
-            pacientes_eval = list(Paciente.objects.filter(cronico=True).order_by('id')[:3])
+            pacientes_eval = list(Paciente.objects.filter(cronico=True).exclude(rut__in=demo_ruts).order_by('id')[:3])
         recetas_eval = list(
             Receta.objects.filter(numero_receta__in=['REC-2026-00104', 'REC-2026-00105'])
         )
@@ -1522,5 +1537,277 @@ class Command(BaseCommand):
             )
         esc_eval.pacientes.set(pacientes_eval)
         esc_eval.recetas.set(recetas_eval)
+
+        # ----------------------------------------------------
+        # 12B. ESCENARIO COMPLETO: DEMO INTEGRAL — EVALUACIÓN TOTAL CESFAM
+        # ----------------------------------------------------
+        self.stdout.write("12B. Configurando escenario 'Demo Integral — Evaluación Total CESFAM'...")
+
+        # 4 Pacientes propios de este escenario
+        pac_demo_1, _ = Paciente.objects.get_or_create(
+            rut='17.482.910-1',
+            defaults={
+                'nombres': 'Valentina Paz',
+                'apellido_paterno': 'Muñoz',
+                'apellido_materno': 'Contreras',
+                'fecha_nacimiento': date(1991, 5, 18),
+                'sexo': 'F',
+                'direccion': 'Av. Vicuña Mackenna 4820, Macul',
+                'telefono': '+56971234501',
+                'email': 'valentina.munoz@correo.cl',
+                'prevision': Paciente.Prevision.FONASA_B,
+                'cronico': False,
+            },
+        )
+
+        pac_demo_2, _ = Paciente.objects.get_or_create(
+            rut='6.482.915-7',
+            defaults={
+                'nombres': 'Héctor Manuel',
+                'apellido_paterno': 'Riquelme',
+                'apellido_materno': 'Araya',
+                'fecha_nacimiento': date(1951, 9, 12),
+                'sexo': 'M',
+                'direccion': 'Pasaje Las Magnolias 215, La Florida',
+                'telefono': '+56971234502',
+                'email': 'hector.riquelme@correo.cl',
+                'prevision': Paciente.Prevision.FONASA_A,
+                'cronico': True,
+                'tercero_autorizado_nombre': 'Javiera Constanza Riquelme Morales',
+                'tercero_autorizado_rut': '18.654.321-1',
+                'tercero_autorizado_parentesco': 'Hija / Cuidadora autorizada',
+            },
+        )
+        # Asegurar datos de tercero autorizado en re-ejecuciones idempotentes
+        if not pac_demo_2.tercero_autorizado_rut:
+            pac_demo_2.tercero_autorizado_nombre = 'Javiera Constanza Riquelme Morales'
+            pac_demo_2.tercero_autorizado_rut = '18.654.321-1'
+            pac_demo_2.tercero_autorizado_parentesco = 'Hija / Cuidadora autorizada'
+            pac_demo_2.save(update_fields=[
+                'tercero_autorizado_nombre',
+                'tercero_autorizado_rut',
+                'tercero_autorizado_parentesco',
+            ])
+        TerceroAutorizado.objects.get_or_create(
+            rut='18.654.321-1',
+            defaults={
+                'nombres': 'Javiera Constanza',
+                'apellido_paterno': 'Riquelme',
+                'apellido_materno': 'Morales',
+                'parentesco': 'Hija / Cuidadora autorizada',
+                'telefono': '+56981112233',
+            },
+        )
+        insc_demo_hta, _ = InscripcionGES.objects.get_or_create(
+            paciente=pac_demo_2,
+            patologia=ges_hta,
+            defaults={
+                'fecha_inscripcion': hoy - timedelta(days=60),
+                'fecha_inicio_periodo': hoy - timedelta(days=60),
+                'fecha_fin_periodo': hoy + timedelta(days=305),
+                'activa': True,
+            },
+        )
+        for cuota_n in range(1, 3):
+            CuotaGES.objects.get_or_create(
+                inscripcion=insc_demo_hta,
+                canasta=canasta_losartan,
+                numero_cuota=cuota_n,
+                defaults={'cantidad_entregada': 30},
+            )
+
+        pac_demo_3, _ = Paciente.objects.get_or_create(
+            rut='15.928.374-7',
+            defaults={
+                'nombres': 'Diego Ignacio',
+                'apellido_paterno': 'Fuentes',
+                'apellido_materno': 'Salgado',
+                'fecha_nacimiento': date(1984, 3, 27),
+                'sexo': 'M',
+                'direccion': 'Av. Irarrázaval 3190, Ñuñoa',
+                'telefono': '+56971234503',
+                'email': 'diego.fuentes@correo.cl',
+                'prevision': Paciente.Prevision.FONASA_D,
+                'cronico': False,
+            },
+        )
+
+        pac_demo_4, _ = Paciente.objects.get_or_create(
+            rut='9.234.817-2',
+            defaults={
+                'nombres': 'Rosa Elena',
+                'apellido_paterno': 'Contreras',
+                'apellido_materno': 'Valdés',
+                'fecha_nacimiento': date(1956, 11, 4),
+                'sexo': 'F',
+                'direccion': 'Calle Santa Rosa 5412, San Joaquín',
+                'telefono': '+56971234504',
+                'email': 'rosa.contreras@correo.cl',
+                'prevision': Paciente.Prevision.PRAIS,
+                'cronico': True,
+            },
+        )
+        insc_demo_epoc, _ = InscripcionGES.objects.get_or_create(
+            paciente=pac_demo_4,
+            patologia=ges_epoc,
+            defaults={
+                'fecha_inscripcion': hoy - timedelta(days=90),
+                'fecha_inicio_periodo': hoy - timedelta(days=90),
+                'fecha_fin_periodo': hoy + timedelta(days=275),
+                'activa': True,
+            },
+        )
+        CuotaGES.objects.get_or_create(
+            inscripcion=insc_demo_epoc,
+            canasta=canasta_salbutamol,
+            numero_cuota=1,
+            defaults={'cantidad_entregada': 2},
+        )
+
+        # 4 Recetas que cubren todos los casos (Simple, Crónica GES + Tercero, Controlada pendiente Q.F., Vencida -10d)
+        rec_demo_a, _ = Receta.objects.get_or_create(
+            numero_receta='REC-DEMO-001',
+            defaults={
+                'paciente': pac_demo_1,
+                'medico': medicos_creados[1],
+                'tipo': Receta.TipoReceta.SIMPLE,
+                'estado': Receta.EstadoReceta.PENDIENTE,
+                'diagnostico': 'Cefalea tensional y cuadro febril leve en atención APS',
+                'fecha_emision': hoy,
+                'fecha_vencimiento': hoy + timedelta(days=15),
+                'observaciones': 'Receta simple vigente lista para dispensación FEFO e impresión de comprobante formal INACAP.',
+            },
+        )
+        DetalleReceta.objects.get_or_create(
+            receta=rec_demo_a,
+            medicamento=med_paracetamol,
+            defaults={
+                'cantidad_prescrita': 20,
+                'cantidad_dispensada': 0,
+                'posologia': '1 comprimido cada 8 horas por vía oral en caso de dolor o fiebre',
+                'dias_tratamiento': 7,
+            },
+        )
+
+        rec_demo_b, _ = Receta.objects.get_or_create(
+            numero_receta='REC-DEMO-002',
+            defaults={
+                'paciente': pac_demo_2,
+                'medico': medicos_creados[0],
+                'tipo': Receta.TipoReceta.CRONICA,
+                'estado': Receta.EstadoReceta.PENDIENTE,
+                'diagnostico': 'Hipertensión Arterial Esencial I10 (GES-01) — Retiro por tercero autorizado',
+                'fecha_emision': hoy,
+                'fecha_vencimiento': hoy + timedelta(days=30),
+                'observaciones': 'Paciente adulto mayor crónico GES-01. Retiro autorizado a hija Javiera Riquelme (RUT 18.654.321-1).',
+            },
+        )
+        DetalleReceta.objects.get_or_create(
+            receta=rec_demo_b,
+            medicamento=med_losartan,
+            defaults={
+                'cantidad_prescrita': 30,
+                'cantidad_dispensada': 0,
+                'posologia': '1 comprimido cada 24 horas por vía oral en la mañana',
+                'dias_tratamiento': 30,
+            },
+        )
+
+        rec_demo_c, _ = Receta.objects.get_or_create(
+            numero_receta='REC-DEMO-003',
+            defaults={
+                'paciente': pac_demo_3,
+                'medico': medicos_creados[0],
+                'tipo': Receta.TipoReceta.RETENIDA,
+                'estado': Receta.EstadoReceta.PENDIENTE,
+                'diagnostico': 'Trastorno de ansiedad generalizada en control APS (Psicotrópico D.S. 405)',
+                'fecha_emision': hoy,
+                'fecha_vencimiento': hoy + timedelta(days=30),
+                'autorizada_qf': False,
+                'observaciones': 'Receta retenida sin visación previa del Q.F. Requiere autorización del Químico Farmacéutico y registro foliado ISP.',
+            },
+        )
+        DetalleReceta.objects.get_or_create(
+            receta=rec_demo_c,
+            medicamento=med_clonazepam,
+            defaults={
+                'cantidad_prescrita': 30,
+                'cantidad_dispensada': 0,
+                'posologia': '1 comprimido por la noche antes de dormir',
+                'dias_tratamiento': 30,
+            },
+        )
+
+        rec_demo_d, _ = Receta.objects.get_or_create(
+            numero_receta='REC-DEMO-004',
+            defaults={
+                'paciente': pac_demo_4,
+                'medico': medicos_creados[2],
+                'tipo': Receta.TipoReceta.SIMPLE,
+                'estado': Receta.EstadoReceta.PENDIENTE,
+                'diagnostico': 'EPOC estable en seguimiento ambulatorio (GES-38) — Receta fuera de vigencia',
+                'fecha_emision': hoy - timedelta(days=40),
+                'fecha_vencimiento': hoy - timedelta(days=10),
+                'observaciones': 'Caso trampa: receta vencida hace 10 días para verificar bloqueo automático de vigencia.',
+            },
+        )
+        DetalleReceta.objects.get_or_create(
+            receta=rec_demo_d,
+            medicamento=med_salbutamol,
+            defaults={
+                'cantidad_prescrita': 2,
+                'cantidad_dispensada': 0,
+                'posologia': '2 inhalaciones cada 8 horas según necesidad respiratoria',
+                'dias_tratamiento': 30,
+            },
+        )
+
+        consigna_demo_integral = (
+            "Evaluación Integral CESFAM — Complete las 5 tareas en orden:\n"
+            "1. Dispensación estándar y crónica GES: Entregue la receta simple de Paracetamol (Valentina Muñoz) bajo FEFO e imprima el documento formal; luego dispense Losartán GES-01 (Héctor Riquelme) registrando el retiro por su Tercero Autorizado (Javiera Riquelme, 18.654.321-1).\n"
+            "2. Controlados ISP (D.S. 405): Verifique el bloqueo de Clonazepam (Diego Fuentes) como Técnico y luego autorice/dispense como Químico Farmacéutico comprobando el asiento automático en el Libro Foliado.\n"
+            "3. Control de vigencia (Caso Trampa): Verifique el rechazo automático de la receta vencida de Salbutamol (Rosa Contreras, PRAIS · GES-38).\n"
+            "4. Abastecimiento CENABAST y FEFO/Cuarentena: Atienda el quiebre de stock de Salbutamol (Técnico propone → Q.F. aprueba → Técnico recepciona en Bodega) y ejecute la baja a cuarentena del lote vencido en Vitrina con Q.F.\n"
+            "5. Carros Clínicos: Reponga por FEFO las 2 ampollas de Adrenalina consumidas en el Carro de Paro (Precinto Roto) y registre el nuevo número de precinto."
+        )
+
+        esc_demo, creado_demo = EscenarioSimulacion.objects.get_or_create(
+            nombre='Demo Integral — Evaluación Total CESFAM',
+            defaults={
+                'descripcion': (
+                    'Escenario integral punta a punta con 4 pacientes dedicados (Simple FONASA B, Crónico GES-01 con '
+                    'Tercero Autorizado, Controlado ISP y PRAIS GES-38 con receta vencida), 4 recetas y 3 incidencias '
+                    'automáticas (quiebre Salbutamol, lote crítico FEFO + vencido en vitrina y consumo en Carro de Paro).'
+                ),
+                'modalidad': EscenarioSimulacion.Modalidad.INCIDENCIAS,
+                'consignas_personalizadas': consigna_demo_integral,
+                'mostrar_consigna_a_estudiantes': True,
+                'simular_quiebre': True,
+                'medicamento_quiebre': med_salbutamol,
+                'simular_alerta_fefo': True,
+                'simular_consumo_carro': True,
+                'activo': False,
+                'creado_por': admin_seed,
+            },
+        )
+        if not creado_demo:
+            esc_demo.modalidad = EscenarioSimulacion.Modalidad.INCIDENCIAS
+            esc_demo.consignas_personalizadas = consigna_demo_integral
+            esc_demo.mostrar_consigna_a_estudiantes = True
+            esc_demo.simular_quiebre = True
+            esc_demo.medicamento_quiebre = med_salbutamol
+            esc_demo.simular_alerta_fefo = True
+            esc_demo.simular_consumo_carro = True
+            esc_demo.save(update_fields=[
+                'modalidad',
+                'consignas_personalizadas',
+                'mostrar_consigna_a_estudiantes',
+                'simular_quiebre',
+                'medicamento_quiebre',
+                'simular_alerta_fefo',
+                'simular_consumo_carro',
+            ])
+        esc_demo.pacientes.set([pac_demo_1, pac_demo_2, pac_demo_3, pac_demo_4])
+        esc_demo.recetas.set([rec_demo_a, rec_demo_b, rec_demo_c, rec_demo_d])
 
         self.stdout.write(self.style.SUCCESS("\n[EXITO] Base de datos relacional (PostgreSQL) y documental (MongoDB) pobladas correctamente."))

@@ -112,10 +112,15 @@ def login_view(request):
 def simular_rol(request, rol_key):
     """
     Selector rápido de 1-Clic para alternar entre los 4 perfiles sanitarios durante la simulación.
-    Cuando MODO_SIMULACION_DOCENTE=True, permite cambiar libremente desde /login/ y desde la barra superior.
-    Cuando MODO_SIMULACION_DOCENTE=False, exige que el usuario real autenticado sea Administrador (403 en otro caso).
+    Cuando DEBUG=True (modo presentación local) o MODO_SIMULACION_DOCENTE=True, permite cambiar
+    libremente desde cualquiera de los 4 usuarios sin cerrar sesión.
+    Cuando DEBUG=False y MODO_SIMULACION_DOCENTE=False, exige que el usuario real autenticado
+    sea Administrador (403 en otro caso).
     """
-    modo_libre = getattr(settings, 'MODO_SIMULACION_DOCENTE', True)
+    modo_libre = bool(
+        getattr(settings, 'DEBUG', False)
+        or getattr(settings, 'MODO_SIMULACION_DOCENTE', False)
+    )
     if not modo_libre:
         if not request.user.is_authenticated:
             return redirect('core:login')
@@ -148,7 +153,7 @@ def simular_rol(request, rol_key):
         if user:
             login(request, user)
             request.session['rol_simulado'] = user.rol
-            if modo_libre or era_admin:
+            if era_admin or user.rol == Usuario.Rol.ADMINISTRADOR:
                 request.session['is_real_admin'] = True
                 if orig_admin_id:
                     request.session['original_admin_id'] = orig_admin_id
@@ -183,13 +188,80 @@ def _clasificar_evento_auditoria(accion_texto):
     return 'valida', 'Acción Válida'
 
 
-def _construir_actividad_supervision(limite=6):
+def _filtrar_auditoria_para_rol(queryset, rol_usuario):
     """
-    Combina operaciones operativas recientes exitosas y bloqueos 403 deduplicados,
-    evitando que un mismo error repetido ocupe toda la vista del dashboard.
+    Aplica visibilidad por rol sobre AuditoriaInmutable:
+    - Administrador: acceso completo (incluye bloqueos 403, respaldos BD y gestión administrativa).
+    - Químico Farmacéutico: excluye por completo eventos de ADMIN y eventos de seguridad/sistema
+      (403, /simular-rol/, /admin-panel/, usuarios/secciones, escenarios, respaldos BD, logins),
+      mostrando únicamente actividad operativa farmacéutica y clínica de su supervisión.
     """
+    if rol_usuario == Usuario.Rol.ADMINISTRADOR:
+        return queryset
+
+    qs = queryset.exclude(
+        Q(rol=Usuario.Rol.ADMINISTRADOR) |
+        Q(usuario__rol=Usuario.Rol.ADMINISTRADOR) |
+        Q(usuario_username__iexact='admin')
+    ).exclude(
+        Q(accion__icontains='403') |
+        Q(accion__icontains='acceso denegado') |
+        Q(accion__icontains='intento bloqueado') |
+        Q(accion__icontains='cambio rápido de rol') |
+        Q(accion__icontains='simular') |
+        Q(entidad_afectada__icontains='/simular-rol/') |
+        Q(entidad_afectada__icontains='/admin-panel/') |
+        Q(entidad_afectada__icontains='/usuarios/') |
+        Q(accion__icontains='escenario') |
+        Q(entidad_afectada__icontains='escenario') |
+        Q(accion__icontains='usuario') |
+        Q(accion__icontains='sección') |
+        Q(accion__icontains='importación masiva') |
+        Q(accion__icontains='acción masiva') |
+        Q(accion__icontains='respaldo') |
+        Q(entidad_afectada__icontains='respaldo') |
+        Q(accion__icontains='inicio de sesión') |
+        Q(accion__icontains='cierre de sesión') |
+        Q(accion__startswith='POST ') |
+        Q(accion__startswith='PUT ') |
+        Q(accion__startswith='DELETE ')
+    )
+
+    operativo_q = (
+        Q(accion__icontains='dispensación') |
+        Q(accion__icontains='receta') |
+        Q(accion__icontains='controlado') |
+        Q(accion__icontains='traspaso') |
+        Q(accion__icontains='lote') |
+        Q(accion__icontains='cuarentena') |
+        Q(accion__icontains='cenabast') |
+        Q(accion__icontains='orden') |
+        Q(accion__icontains='remesa') |
+        Q(accion__icontains='abastecimiento') |
+        Q(accion__icontains='visación') |
+        Q(accion__icontains='recepción') |
+        Q(accion__icontains='carro') |
+        Q(accion__icontains='consumo') |
+        Q(accion__icontains='reposición') |
+        Q(accion__icontains='precinto') |
+        Q(accion__icontains='arsenal') |
+        Q(accion__icontains='medicamento') |
+        Q(accion__icontains='insumo') |
+        Q(accion__icontains='paciente') |
+        Q(accion__icontains='ges')
+    )
+    return qs.filter(operativo_q)
+
+
+def _construir_actividad_supervision(limite=6, rol_usuario=Usuario.Rol.ADMINISTRADOR):
+    """
+    Construye el resumen de actividad reciente del Dashboard según rol:
+    - Administrador: combina operaciones recientes y bloqueos 403 deduplicados.
+    - Químico Farmacéutico: únicamente actividad operativa farmacéutica y clínica.
+    """
+    base_qs = _filtrar_auditoria_para_rol(AuditoriaInmutable.objects.all(), rol_usuario)
     recientes = list(
-        AuditoriaInmutable.objects.exclude(
+        base_qs.exclude(
             Q(accion__icontains='Cambio Rápido de Rol') |
             Q(accion__startswith='POST ') |
             Q(accion__startswith='PUT ') |
@@ -310,9 +382,9 @@ def dashboard(request):
         for c in categorias
     ]
 
-    # Alertas y auditoría recientes desde PostgreSQL (JSONB)
+    # Alertas y auditoría recientes desde PostgreSQL (JSONB), filtradas según rol
     alertas_recientes = AlertaSistema.objects.all()[:10]
-    auditoria_reciente = _construir_actividad_supervision(limite=6)
+    auditoria_reciente = _construir_actividad_supervision(limite=6, rol_usuario=request.user.rol)
     lotes_criticos_fefo = Lote.objects.filter(
         activo=True, en_cuarentena=False, cantidad_actual__gt=0, fecha_vencimiento__gt=hoy
     ).select_related('medicamento', 'ubicacion').order_by('fecha_vencimiento')[:6]
@@ -595,11 +667,20 @@ def api_validar_rut(request):
     motivo='La bitácora de auditoría inmutable solo puede ser consultada por el Administrador o el Químico Farmacéutico.'
 )
 def auditoria_list(request):
-    """Visor de la Bitácora de Auditoría (Exclusivo Dirección Técnica Q.F. y Administrador)."""
+    """Visor de la Bitácora de Auditoría (Admin: total; Q.F.: solo operativa farmacéutica/clínica)."""
     rol_filtro = request.GET.get('rol', '').strip()
     q = request.GET.get('q', '').strip()
     fecha_filtro = request.GET.get('fecha', '').strip()
-    registros = AuditoriaInmutable.objects.all()
+    registros = _filtrar_auditoria_para_rol(AuditoriaInmutable.objects.all(), request.user.rol)
+    if request.user.rol == Usuario.Rol.ADMINISTRADOR:
+        roles_filtro = Usuario.Rol.choices
+    else:
+        roles_filtro = [
+            (val, label) for val, label in Usuario.Rol.choices
+            if val != Usuario.Rol.ADMINISTRADOR
+        ]
+        if rol_filtro == Usuario.Rol.ADMINISTRADOR:
+            rol_filtro = ''
     if rol_filtro:
         registros = registros.filter(rol=rol_filtro)
     if q:
@@ -619,7 +700,7 @@ def auditoria_list(request):
         'rol_filtro': rol_filtro,
         'q': q,
         'fecha_filtro': fecha_filtro,
-        'roles': Usuario.Rol.choices,
+        'roles': roles_filtro,
     })
 
 

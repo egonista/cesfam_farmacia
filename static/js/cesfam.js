@@ -134,14 +134,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 5000);
     });
 
-    // Confirmar acciones destructivas
-    document.querySelectorAll('[data-confirm]').forEach(function(el) {
-        el.addEventListener('click', function(e) {
-            if (!confirm(this.dataset.confirm)) {
-                e.preventDefault();
-            }
-        });
-    });
+    // Nota: las confirmaciones [data-confirm] se manejan globalmente mediante el modal #modalConfirmacionGlobal en base.html.
 
     // Inicializar tooltips de Bootstrap
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');

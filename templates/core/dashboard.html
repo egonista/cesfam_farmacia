@@ -50,21 +50,6 @@
     </div>
 </div>
 
-{% if user.rol != 'admin' and escenario_activo and escenario_activo.mostrar_consigna_a_estudiantes and escenario_activo.consignas_personalizadas %}
-<!-- Consigna Personalizada del Taller Activo (Docente) -->
-<div class="card border-0 border-start border-4 border-primary shadow-sm mb-3 bg-primary bg-opacity-10">
-    <div class="card-body py-2 px-3">
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
-            <span class="fw-bold small text-primary">
-                <i class="bi bi-chat-square-text-fill me-1"></i>Consigna del Taller Activo
-            </span>
-            <span class="badge bg-white text-dark border small">{{ escenario_activo.nombre }}</span>
-        </div>
-        <div class="small text-dark">{{ escenario_activo.consignas_personalizadas|linebreaksbr }}</div>
-    </div>
-</div>
-{% endif %}
-
 <!-- Fila 1: KPIs Principales (Adaptados por Rol: Carros Clínicos para Personal Clínico vs. Farmacia) -->
 {% if user.rol == 'clinico' %}
 <div class="row g-3 mb-4">
@@ -174,18 +159,20 @@
         </a>
     </div>
     <div class="col-xl-3 col-md-6">
-        <div class="card kpi-card danger p-3 h-100">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <div class="kpi-label mb-1">Lotes Vencidos (Bloqueados)</div>
-                    <div class="kpi-value text-danger">{{ lotes_vencidos }}</div>
-                    <div class="small text-danger fw-semibold mt-1"><i class="bi bi-lock-fill me-1"></i>Bloqueo estricto FEFO</div>
-                </div>
-                <div class="p-3 rounded-3 bg-danger bg-opacity-10 text-danger">
-                    <i class="bi bi-shield-x fs-2"></i>
+        <a href="{% url 'farmacia:lote_list' %}?alerta=vencido" class="text-decoration-none d-block h-100 kpi-card-link" title="Ir directo a Lotes Vencidos pendientes de baja">
+            <div class="card kpi-card danger p-3 h-100">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="kpi-label mb-1">Lotes Vencidos (Bloqueados)</div>
+                        <div class="kpi-value text-danger">{{ lotes_vencidos }}</div>
+                        <div class="small text-danger fw-semibold mt-1"><i class="bi bi-lock-fill me-1"></i>Bloqueo FEFO <span class="text-dark">· Gestionar →</span></div>
+                    </div>
+                    <div class="p-3 rounded-3 bg-danger bg-opacity-10 text-danger">
+                        <i class="bi bi-shield-x fs-2"></i>
+                    </div>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 {% endif %}
@@ -194,37 +181,43 @@
 <!-- Fila 2: Semáforo Visual de Caducidad FEFO (30 / 60 / 90 días) -->
 <div class="row g-3 mb-4">
     <div class="col-md-4">
-        <div class="card p-3 border-start border-danger border-4">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <span class="badge bg-danger mb-1">🔴 CRÍTICO (≤ 30 DÍAS)</span>
-                    <div class="small text-muted">Prioridad de salida inmediata FEFO</div>
+        <a href="{% url 'farmacia:lote_list' %}?alerta=30" class="text-decoration-none d-block kpi-card-link" title="Ver lotes críticos (≤ 30 días)">
+            <div class="card p-3 border-start border-danger border-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="badge bg-danger mb-1">🔴 CRÍTICO (≤ 30 DÍAS)</span>
+                        <div class="small text-muted">Prioridad de salida inmediata FEFO</div>
+                    </div>
+                    <span class="fs-2 fw-bolder text-danger">{{ lotes_por_vencer_30 }}</span>
                 </div>
-                <span class="fs-2 fw-bolder text-danger">{{ lotes_por_vencer_30 }}</span>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-4">
-        <div class="card p-3 border-start border-warning border-4">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <span class="badge bg-warning text-dark mb-1">🟠 URGENTE (31 A 60 DÍAS)</span>
-                    <div class="small text-muted">Rotación programada en mostrador</div>
+        <a href="{% url 'farmacia:lote_list' %}?alerta=60" class="text-decoration-none d-block kpi-card-link" title="Ver lotes urgentes (31 a 60 días)">
+            <div class="card p-3 border-start border-warning border-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="badge bg-warning text-dark mb-1">🟠 URGENTE (31 A 60 DÍAS)</span>
+                        <div class="small text-muted">Rotación programada en mostrador</div>
+                    </div>
+                    <span class="fs-2 fw-bolder text-warning">{{ lotes_por_vencer_60 }}</span>
                 </div>
-                <span class="fs-2 fw-bolder text-warning">{{ lotes_por_vencer_60 }}</span>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-4">
-        <div class="card p-3 border-start border-info border-4">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <span class="badge bg-info text-dark mb-1">🟡 PREVENTIVO (61 A 90 DÍAS)</span>
-                    <div class="small text-muted">Vigilancia preventiva de lotes</div>
+        <a href="{% url 'farmacia:lote_list' %}?alerta=90" class="text-decoration-none d-block kpi-card-link" title="Ver lotes preventivos (61 a 90 días)">
+            <div class="card p-3 border-start border-info border-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="badge bg-info text-dark mb-1">🟡 PREVENTIVO (61 A 90 DÍAS)</span>
+                        <div class="small text-muted">Vigilancia preventiva de lotes</div>
+                    </div>
+                    <span class="fs-2 fw-bolder text-info">{{ lotes_por_vencer_90 }}</span>
                 </div>
-                <span class="fs-2 fw-bolder text-info">{{ lotes_por_vencer_90 }}</span>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -252,7 +245,11 @@
                             {% for l in lotes_criticos_fefo %}
                             <tr>
                                 <td><code class="fw-bold">{{ l.numero_lote }}</code></td>
-                                <td><strong>{{ l.medicamento.nombre_generico }}</strong> <small class="text-muted">{{ l.medicamento.concentracion }}</small></td>
+                                <td>
+                                    <a href="{% url 'farmacia:medicamento_detalle' l.medicamento.pk %}" class="text-decoration-none text-dark" title="Ver Ficha / Kardex">
+                                        <strong>{{ l.medicamento.nombre_generico }}</strong> <small class="text-muted">{{ l.medicamento.concentracion }}</small>
+                                    </a>
+                                </td>
                                 <td class="small">{{ l.ubicacion.nombre }}</td>
                                 <td class="small fw-semibold">{{ l.fecha_vencimiento|date:"d/m/Y" }} ({{ l.dias_para_vencer }}d)</td>
                                 <td>
